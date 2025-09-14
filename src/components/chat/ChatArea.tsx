@@ -27,10 +27,10 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
         <div className="text-center max-w-md">
-          <h2 className="text-4xl font-bold mb-4 text-white drop-shadow-lg my-5">
+          <h2 className="text-4xl font-bold mb-4 text-foreground drop-shadow-lg my-5">
             Welcome to Sand
           </h2>
-          <p className="text-white/90 leading-relaxed text-lg drop-shadow">
+          <p className="leading-relaxed text-lg text-muted-foreground drop-shadow">
             Start a conversation by typing a message below. I'll help you with any questions you have.
           </p>
         </div>
@@ -42,10 +42,10 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
         <div className="text-center max-w-md my-5">
-          <h2 className="text-3xl font-bold mb-3 text-white drop-shadow-lg">
+          <h2 className="text-3xl font-bold mb-3 text-foreground drop-shadow-lg">
             {activeThread.title}
           </h2>
-          <p className="text-white/90 leading-relaxed mb-6 drop-shadow">
+          <p className="leading-relaxed mb-6 text-muted-foreground drop-shadow">
             This is a new conversation. Type a message below to get started.
           </p>
         </div>
@@ -63,7 +63,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
               <div className="flex justify-end">
                 <div className="flex items-start space-x-3 max-w-[80%]">
                   <div className="bg-muted rounded-2xl px-4 py-3">
-                    <p className="text-foreground text-sm leading-relaxed">
+                    <p className="text-sm leading-relaxed text-muted-foreground">
                       {message.content}
                     </p>
                   </div>

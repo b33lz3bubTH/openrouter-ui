@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Paperclip, Mic } from 'lucide-react';
+import { useSiriToast } from '@/hooks/useSiriToast';
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
@@ -10,11 +11,13 @@ interface ChatInputProps {
 
 export const ChatInput = ({ onSendMessage, isLoading }: ChatInputProps) => {
   const [message, setMessage] = useState('');
+  const toast = useSiriToast();
 
   const handleSubmit = () => {
     if (!message.trim() || isLoading) return;
     onSendMessage(message);
     setMessage('');
+    toast.info("Message sent! 📨");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

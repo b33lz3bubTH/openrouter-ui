@@ -6,6 +6,8 @@ import { useChat } from "@/hooks/useChat";
 import { Button } from "@/components/ui/button";
 import { SplineBackground } from "@/components/ui/SplineBackground";
 import { MoreHorizontal } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useSiriToast } from "@/hooks/useSiriToast";
 
 export const ChatLayout = () => {
   const {
@@ -23,10 +25,16 @@ export const ChatLayout = () => {
     sendMessage(message, activeThreadId || undefined);
   };
 
+  const { theme } = useTheme();
+  const toast = useSiriToast();
+  
+  // Use theme-specific opacity if no custom opacity is provided
+  const backgroundOpacity = theme === 'light' ? 0.1 : 0.8;
+
   return (
     <SidebarProvider>
       {/* Spline Background */}
-      <SplineBackground opacity={0.8} />
+      <SplineBackground opacity={backgroundOpacity}/>
       
       <div className="min-h-screen flex w-full bg-transparent">
         <AppSidebar
@@ -58,7 +66,13 @@ export const ChatLayout = () => {
             </div>
             
             <div className="flex items-center space-x-2">
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 w-8 p-0"
+                onClick={() => toast.success("Siri-style toast working! 🎉")}
+                title="Test Toast"
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </div>

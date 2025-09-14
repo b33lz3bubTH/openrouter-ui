@@ -28,8 +28,8 @@ interface AppSidebarProps {
 }
 
 const userProfile: UserProfile = {
-  name: 'Elizabeth Keen',
-  initials: 'EK'
+  name: commonConfig.projectName,
+  initials: commonConfig.projectName.charAt(0)
 };
 
 export function AppSidebar({
