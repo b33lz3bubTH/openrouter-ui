@@ -1,6 +1,7 @@
 import { MessageSquare, Plus, Trash2, Settings, Info, Menu, User, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SplineLogo } from "@/components/ui/SplineLogo";
 import {
   Sidebar,
   SidebarContent,
@@ -16,6 +17,7 @@ import {
 import { ChatThread, UserProfile } from "@/types/chat";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
+import { commonConfig } from "@/utils/common-config";
 
 interface AppSidebarProps {
   threads: ChatThread[];
@@ -45,11 +47,8 @@ export function AppSidebar({
         {/* Logo and Navigation */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
-            <div className="relative">
-              <div className="w-6 h-6 bg-foreground rounded-sm transform rotate-12 absolute"></div>
-              <div className="w-6 h-6 bg-muted-foreground rounded-sm transform -rotate-12"></div>
-            </div>
-            <span className="font-bold text-lg text-sidebar-foreground">Sand</span>
+            {/* <SplineLogo size="sm" /> */}
+            <span className="font-bold text-lg text-sidebar-foreground">{commonConfig.projectName}</span>
           </div>
           <div className="flex items-center space-x-1">
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0">

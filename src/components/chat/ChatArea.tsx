@@ -1,4 +1,5 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { SplineLogo } from '@/components/ui/SplineLogo';
 import { ChatThread } from '@/types/chat';
 import { User, Bot, Loader2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
@@ -24,16 +25,12 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
 
   if (!activeThread) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background">
+      <div className="flex-1 flex items-center justify-center bg-transparent">
         <div className="text-center max-w-md">
-          <div className="relative mb-6">
-            <div className="w-12 h-12 bg-foreground rounded-lg transform rotate-12 absolute left-1/2 top-0 -translate-x-1/2"></div>
-            <div className="w-12 h-12 bg-muted-foreground rounded-lg transform -rotate-12 mx-auto"></div>
-          </div>
-          <h2 className="text-2xl font-semibold mb-3 text-foreground">
+          <h2 className="text-4xl font-bold mb-4 text-white drop-shadow-lg my-5">
             Welcome to Sand
           </h2>
-          <p className="text-muted-foreground leading-relaxed">
+          <p className="text-white/90 leading-relaxed text-lg drop-shadow">
             Start a conversation by typing a message below. I'll help you with any questions you have.
           </p>
         </div>
@@ -43,33 +40,21 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
 
   if (activeThread.messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background">
-        <div className="text-center max-w-md">
-          <div className="relative mb-6">
-            <div className="w-12 h-12 bg-foreground rounded-lg transform rotate-12 absolute left-1/2 top-0 -translate-x-1/2"></div>
-            <div className="w-12 h-12 bg-muted-foreground rounded-lg transform -rotate-12 mx-auto"></div>
-          </div>
-          <h2 className="text-2xl font-semibold mb-3 text-foreground">
+      <div className="flex-1 flex items-center justify-center bg-transparent">
+        <div className="text-center max-w-md my-5">
+          <h2 className="text-3xl font-bold mb-3 text-white drop-shadow-lg">
             {activeThread.title}
           </h2>
-          <p className="text-muted-foreground leading-relaxed">
+          <p className="text-white/90 leading-relaxed mb-6 drop-shadow">
             This is a new conversation. Type a message below to get started.
           </p>
-          <div className="mt-6 space-y-2">
-            <p className="text-sm text-muted-foreground">Try asking:</p>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground/70">• "What is React?"</p>
-              <p className="text-xs text-muted-foreground/70">• "How do I create a pricing section?"</p>
-              <p className="text-xs text-muted-foreground/70">• "Explain TypeScript"</p>
-            </div>
-          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <ScrollArea ref={scrollAreaRef} className="flex-1 bg-background">
+    <ScrollArea ref={scrollAreaRef} className="flex-1 bg-transparent">
       <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
         {activeThread.messages.map((message) => (
           <div key={message.id} className="space-y-4">

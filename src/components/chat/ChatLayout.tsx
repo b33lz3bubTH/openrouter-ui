@@ -4,6 +4,7 @@ import { ChatArea } from "@/components/chat/ChatArea";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { useChat } from "@/hooks/useChat";
 import { Button } from "@/components/ui/button";
+import { SplineBackground } from "@/components/ui/SplineBackground";
 import { MoreHorizontal } from "lucide-react";
 
 export const ChatLayout = () => {
@@ -24,7 +25,10 @@ export const ChatLayout = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
+      {/* Spline Background */}
+      <SplineBackground opacity={0.8} />
+      
+      <div className="min-h-screen flex w-full bg-transparent">
         <AppSidebar
           threads={threads}
           activeThreadId={activeThreadId}
@@ -39,10 +43,7 @@ export const ChatLayout = () => {
             <div className="flex items-center space-x-4">
               <SidebarTrigger />
               <div className="flex items-center space-x-3">
-                <div className="relative">
-                  <div className="w-6 h-6 bg-foreground rounded-sm transform rotate-12 absolute"></div>
-                  <div className="w-6 h-6 bg-muted-foreground rounded-sm transform -rotate-12"></div>
-                </div>
+                {/* <SplineLogo size="sm" /> */}
                 <div>
                   <div className="font-semibold text-foreground">
                     {activeThread?.displayId || 'New Chat'}

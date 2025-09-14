@@ -8,22 +8,44 @@ const generateDisplayId = (index: number): string => {
   return `SAND-${index + 1}`;
 };
 
-// Mock API responses with realistic LLM timing
-const getMockResponse = async (message: string, requestId: string): Promise<string> => {
+// Backend API request structure
+interface BackendRequest {
+  threadId: string;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+  }>;
+  currentMessage: string;
+}
+
+// Mock API responses with realistic LLM timing and context
+const getMockResponse = async (backendRequest: BackendRequest): Promise<string> => {
+  // Log what's being sent to backend
+  console.log('🚀 SENDING TO BACKEND:', JSON.stringify(backendRequest, null, 2));
+  
   // Simulate real LLM response time (5-12 seconds)
   const delay = 5000 + Math.random() * 7000;
   await new Promise(resolve => setTimeout(resolve, delay));
   
+  const { currentMessage, messages } = backendRequest;
+  const contextLength = messages.length;
+  
   const responses = [
-    `Based on your question "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}", here's what I found. This is a detailed response with comprehensive insights from current sources and real-time data. The analysis shows multiple perspectives and I've gathered information from various reliable sources to provide you with the most accurate answer possible.`,
-    `I've analyzed your query about "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}". Here are the key findings from the latest information available across multiple sources. This comprehensive response includes current data, expert opinions, and practical insights that should help you understand the topic thoroughly.`,
-    `Great question! Regarding "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}", the current data suggests several important points that I'll break down for you. After processing information from multiple reliable sources, here's a detailed explanation that covers the main aspects of your inquiry.`,
-    `Let me help with that. Based on real-time analysis of "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}", here's a comprehensive answer with the most up-to-date information. I've synthesized data from various sources to provide you with accurate, relevant, and actionable insights.`,
-    `That's an interesting question about "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}". Let me provide you with a detailed explanation based on the latest available information. This response incorporates current research, expert analysis, and practical considerations to give you a complete understanding.`,
-    `I understand you're asking about "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}". Here's what I can tell you from current sources and real-time data. This comprehensive analysis includes multiple viewpoints and the most recent information available on this topic.`
+    `Based on your question "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}" and our conversation history (${contextLength} previous messages), here's what I found. This response considers the full context of our discussion and provides comprehensive insights from current sources.`,
+    `I've analyzed your query about "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}" in the context of our ${contextLength} previous exchanges. Here are the key findings that build upon our conversation thread.`,
+    `Great follow-up question! Regarding "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}", considering our conversation history, the current data suggests several important points that I'll break down for you.`,
+    `Let me help with that. Based on your question "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}" and the context from our ${contextLength} previous messages, here's a comprehensive answer with the most up-to-date information.`,
+    `That's an interesting question about "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}". Considering our conversation thread, let me provide you with a detailed explanation that builds on what we've discussed.`,
+    `I understand you're asking about "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}". Based on our conversation context (${contextLength} messages), here's what I can tell you from current sources and real-time data.`
   ];
   
-  return responses[Math.floor(Math.random() * responses.length)];
+  const response = responses[Math.floor(Math.random() * responses.length)];
+  
+  // Log the mock response
+  console.log('✅ MOCK RESPONSE:', response);
+  
+  return response;
 };
 
 const loadThreads = (): ChatThread[] => {
@@ -106,6 +128,10 @@ export const useChat = () => {
       currentThreadId = newThread.id;
     }
 
+    // Get current thread for context
+    const currentThread = threads.find(t => t.id === currentThreadId);
+    if (!currentThread) return;
+
     // Generate unique request ID for this message
     const requestId = uuidv4();
     activeRequests.current.add(requestId);
@@ -147,8 +173,21 @@ export const useChat = () => {
     }
 
     try {
-      // Get mock response (this runs concurrently)
-      const response = await getMockResponse(content.trim(), requestId);
+      // Prepare backend request with full conversation context
+      const backendRequest: BackendRequest = {
+        threadId: currentThreadId,
+        messages: currentThread.messages
+          .filter(msg => !msg.isLoading) // Don't send loading messages
+          .map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp.toISOString()
+          })),
+        currentMessage: content.trim()
+      };
+
+      // Get mock response with full context (this runs concurrently)
+      const response = await getMockResponse(backendRequest);
       
       // Only update if this request is still active (not cancelled)
       if (activeRequests.current.has(requestId)) {
@@ -171,7 +210,7 @@ export const useChat = () => {
         });
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('❌ Error sending message:', error);
       
       // Only handle error if request is still active
       if (activeRequests.current.has(requestId)) {
