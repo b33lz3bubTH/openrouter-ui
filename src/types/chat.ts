@@ -1,3 +1,11 @@
+export interface Message {
+  id: string;
+  content: string;
+  role: 'user' | 'assistant';
+  timestamp: Date;
+  isLoading?: boolean;
+}
+
 export interface Conversation {
   user: string;
   bot: string;
@@ -6,19 +14,20 @@ export interface Conversation {
 export interface ChatThread {
   id: string;
   title: string;
-  conversations: Conversation[];
+  displayId: string; // e.g., "SAND-4"
+  conversations: Conversation[]; // Keep for backward compatibility
+  messages: Message[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface ApiRequest {
-  threadId: string;
-  conversations: Conversation[];
-  current_prompt: string;
+export interface UserProfile {
+  name: string;
+  avatar?: string;
+  initials: string;
 }
 
-export interface ChatStore {
-  threads: ChatThread[];
-  activeThreadId: string | null;
-  isLoading: boolean;
+// Simple API request for Perplexity proxy
+export interface PerplexityRequest {
+  message: string;
 }
