@@ -1,22 +1,24 @@
-export interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: Date;
-  isTyping?: boolean;
+export interface Conversation {
+  user: string;
+  bot: string;
 }
 
 export interface ChatThread {
   id: string;
   title: string;
-  messages: Message[];
+  conversations: Conversation[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ApiRequest {
+  threadId: string;
+  conversations: Conversation[];
+  current_prompt: string;
 }
 
 export interface ChatStore {
   threads: ChatThread[];
   activeThreadId: string | null;
   isLoading: boolean;
-  error: string | null;
 }

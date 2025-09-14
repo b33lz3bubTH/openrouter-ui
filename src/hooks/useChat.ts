@@ -1,31 +1,62 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ChatThread, Message } from '@/types/chat';
+import { ChatThread, Conversation, ApiRequest } from '@/types/chat';
 
-const mockPerplexityResponse = async (message: string): Promise<string> => {
+const STORAGE_KEY = 'chat-threads';
+
+const mockPerplexityResponse = async (request: ApiRequest): Promise<string> => {
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
   
   const responses = [
-    `Based on your question about "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}", I can provide some insights. This is a detailed response from Perplexity AI that would normally be generated based on real-time web search and AI analysis.`,
-    `Interesting question! Let me break this down for you. According to recent sources, there are several key points to consider regarding "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}". Here's what the latest information suggests...`,
-    `Great question! I've searched through the most current information available. Here's a comprehensive answer to your query about "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}". The key findings indicate...`,
-    `Let me help you with that. Based on the latest data and sources, here's what I found about "${message.slice(0, 30)}${message.length > 30 ? '...' : ''}". This information is current as of today and includes insights from multiple reliable sources...`
+    `Based on your question "${request.current_prompt.slice(0, 30)}${request.current_prompt.length > 30 ? '...' : ''}", here's what I found. This is a detailed response from Perplexity AI.`,
+    `I've analyzed your query about "${request.current_prompt.slice(0, 30)}${request.current_prompt.length > 30 ? '...' : ''}". Here are the key insights from current sources.`,
+    `Great question! Regarding "${request.current_prompt.slice(0, 30)}${request.current_prompt.length > 30 ? '...' : ''}", the latest information suggests several important points.`,
+    `Let me help with that. Based on real-time data about "${request.current_prompt.slice(0, 30)}${request.current_prompt.length > 30 ? '...' : ''}", here's a comprehensive answer.`
   ];
   
   return responses[Math.floor(Math.random() * responses.length)];
 };
 
+const loadThreads = (): ChatThread[] => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return parsed.map((thread: any) => ({
+        ...thread,
+        createdAt: new Date(thread.createdAt),
+        updatedAt: new Date(thread.updatedAt)
+      }));
+    }
+  } catch (error) {
+    console.error('Error loading threads:', error);
+  }
+  return [];
+};
+
+const saveThreads = (threads: ChatThread[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+  } catch (error) {
+    console.error('Error saving threads:', error);
+  }
+};
+
 export const useChat = () => {
-  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [threads, setThreads] = useState<ChatThread[]>(() => loadThreads());
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    saveThreads(threads);
+  }, [threads]);
 
   const createNewThread = useCallback(() => {
     const newThread: ChatThread = {
       id: uuidv4(),
       title: 'New Chat',
-      messages: [],
+      conversations: [],
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -44,78 +75,45 @@ export const useChat = () => {
       currentThreadId = createNewThread();
     }
 
-    const userMessage: Message = {
-      id: uuidv4(),
-      content: content.trim(),
-      role: 'user',
-      timestamp: new Date()
-    };
-
-    // Add user message
-    setThreads(prev => prev.map(thread => 
-      thread.id === currentThreadId 
-        ? {
-            ...thread,
-            messages: [...thread.messages, userMessage],
-            title: thread.messages.length === 0 ? content.slice(0, 30) + (content.length > 30 ? '...' : '') : thread.title,
-            updatedAt: new Date()
-          }
-        : thread
-    ));
-
-    // Add typing indicator
-    const typingMessage: Message = {
-      id: uuidv4(),
-      content: '',
-      role: 'assistant',
-      timestamp: new Date(),
-      isTyping: true
-    };
-
-    setThreads(prev => prev.map(thread => 
-      thread.id === currentThreadId 
-        ? {
-            ...thread,
-            messages: [...thread.messages, typingMessage]
-          }
-        : thread
-    ));
+    // Get current thread to build conversations array
+    const currentThread = threads.find(t => t.id === currentThreadId);
+    if (!currentThread) return;
 
     setIsLoading(true);
 
     try {
-      const response = await mockPerplexityResponse(content);
+      // Prepare API request
+      const apiRequest: ApiRequest = {
+        threadId: currentThreadId,
+        conversations: currentThread.conversations,
+        current_prompt: content.trim()
+      };
+
+      const response = await mockPerplexityResponse(apiRequest);
       
-      // Remove typing indicator and add real response
+      // Create new conversation
+      const newConversation: Conversation = {
+        user: content.trim(),
+        bot: response
+      };
+
+      // Update thread with new conversation
       setThreads(prev => prev.map(thread => 
         thread.id === currentThreadId 
           ? {
               ...thread,
-              messages: thread.messages.filter(msg => !msg.isTyping).concat({
-                id: uuidv4(),
-                content: response,
-                role: 'assistant',
-                timestamp: new Date()
-              }),
+              conversations: [...thread.conversations, newConversation],
+              title: thread.conversations.length === 0 ? content.slice(0, 30) + (content.length > 30 ? '...' : '') : thread.title,
               updatedAt: new Date()
             }
           : thread
       ));
     } catch (error) {
       console.error('Error sending message:', error);
-      // Remove typing indicator on error
-      setThreads(prev => prev.map(thread => 
-        thread.id === currentThreadId 
-          ? {
-              ...thread,
-              messages: thread.messages.filter(msg => !msg.isTyping)
-            }
-          : thread
-      ));
     } finally {
       setIsLoading(false);
     }
-  }, [activeThreadId, createNewThread]);
+  }, [activeThreadId, createNewThread, threads]);
 
   const selectThread = useCallback((threadId: string) => {
     setActiveThreadId(threadId);
