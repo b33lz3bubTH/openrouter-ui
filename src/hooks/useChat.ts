@@ -98,7 +98,7 @@ export const useChat = () => {
     return null;
   }, []);
 
-  const sendMessage = useCallback(async (content: string, threadId?: string) => {
+  const sendMessage = useCallback(async (content: string, threadId?: string, image?: string) => {
     if (!content.trim()) return;
 
     let currentThreadId = threadId || activeThreadId;
@@ -183,7 +183,8 @@ export const useChat = () => {
             content: msg.content,
             timestamp: msg.timestamp.toISOString()
           })),
-        currentMessage: content.trim()
+        currentMessage: content.trim(),
+        ...(image && { image: image })
       };
 
       // Get mock response with full context (this runs concurrently)

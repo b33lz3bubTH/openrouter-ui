@@ -22,8 +22,7 @@ export const ChatLayout = () => {
   } = useChat();
 
   const handleSendMessage = (message: string, image?: string) => {
-    // For now, just send the text message. Image will be handled later in backend integration
-    sendMessage(message, activeThreadId || undefined);
+    sendMessage(message, activeThreadId || undefined, image);
   };
 
   const { theme } = useTheme();

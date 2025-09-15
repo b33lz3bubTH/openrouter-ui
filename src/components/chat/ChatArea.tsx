@@ -66,6 +66,11 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                     <p className="text-sm leading-relaxed text-muted-foreground">
                       {message.content}
                     </p>
+                    {message.hasImage && (
+                      <div className="mt-2 text-xs text-muted-foreground/70">
+                        📎 Image attached
+                      </div>
+                    )}
                   </div>
                   <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
                     <User className="h-4 w-4 text-secondary-foreground" />

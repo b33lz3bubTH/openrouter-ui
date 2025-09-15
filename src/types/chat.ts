@@ -4,6 +4,7 @@ export interface Message {
   role: 'user' | 'assistant';
   timestamp: Date;
   isLoading?: boolean;
+  hasImage?: boolean;
 }
 
 export interface Conversation {

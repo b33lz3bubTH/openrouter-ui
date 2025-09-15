@@ -13,6 +13,7 @@ export const ChatInput = ({ onSendMessage, isLoading }: ChatInputProps) => {
   const [message, setMessage] = useState('');
   const [pastedImage, setPastedImage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const toast = useSiriToast();
 
   const handleSubmit = () => {
@@ -49,8 +50,24 @@ export const ChatInput = ({ onSendMessage, isLoading }: ChatInputProps) => {
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setPastedImage(base64);
+        toast.info("Image selected! 📷");
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const removeImage = () => {
     setPastedImage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -91,11 +108,19 @@ export const ChatInput = ({ onSendMessage, isLoading }: ChatInputProps) => {
             
             {/* Input Actions */}
             <div className="absolute right-3 bottom-3 flex items-center space-x-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0"
                 disabled={isLoading}
+                onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
               </Button>
