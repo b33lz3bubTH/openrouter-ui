@@ -21,7 +21,8 @@ export const ChatLayout = () => {
     deleteThread
   } = useChat();
 
-  const handleSendMessage = (message: string) => {
+  const handleSendMessage = (message: string, image?: string) => {
+    // For now, just send the text message. Image will be handled later in backend integration
     sendMessage(message, activeThreadId || undefined);
   };
 

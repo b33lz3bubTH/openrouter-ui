@@ -1,22 +1,25 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Paperclip, Mic } from 'lucide-react';
+import { Send, Paperclip, Mic, X } from 'lucide-react';
 import { useSiriToast } from '@/hooks/useSiriToast';
 
 interface ChatInputProps {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, image?: string) => void;
   isLoading: boolean;
 }
 
 export const ChatInput = ({ onSendMessage, isLoading }: ChatInputProps) => {
   const [message, setMessage] = useState('');
+  const [pastedImage, setPastedImage] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toast = useSiriToast();
 
   const handleSubmit = () => {
     if (!message.trim() || isLoading) return;
-    onSendMessage(message);
+    onSendMessage(message, pastedImage || undefined);
     setMessage('');
+    setPastedImage(null);
     toast.info("Message sent! 📨");
   };
 
@@ -27,17 +30,61 @@ export const ChatInput = ({ onSendMessage, isLoading }: ChatInputProps) => {
     }
   };
 
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find(item => item.type.startsWith('image/'));
+    
+    if (imageItem) {
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target?.result as string;
+          setPastedImage(base64);
+          toast.info("Image pasted! 📷");
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  const removeImage = () => {
+    setPastedImage(null);
+  };
+
   return (
     <div className="border-t bg-card p-4">
       <div className="max-w-4xl mx-auto">
+        {/* Image Preview */}
+        {pastedImage && (
+          <div className="mb-3 relative inline-block">
+            <img 
+              src={pastedImage} 
+              alt="Pasted" 
+              className="max-w-32 max-h-32 rounded-lg border"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute -top-2 -right-2 h-6 w-6 p-0 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={removeImage}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+        
         <div className="relative flex items-end space-x-3">
           {/* Input Area */}
           <div className="flex-1 relative">
             <Textarea
+              ref={textareaRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask me anything..."
+              onPaste={handlePaste}
+              placeholder="Ask me anything... (Ctrl+V to paste images)"
               className="min-h-[52px] max-h-32 resize-none rounded-xl pr-20 py-3 bg-background border-input focus:border-ring focus:ring-0 text-foreground placeholder-muted-foreground"
               disabled={isLoading}
             />
