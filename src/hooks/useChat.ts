@@ -1,51 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ChatThread, Message } from '@/types/chat';
+import { ChatThread, Message, ThreadConfig, NewThreadPrompt } from '@/types/chat';
+import { ChatService } from '@/services/chatService';
+import { useAuth } from '@/hooks/useAuth';
 
 const STORAGE_KEY = 'chat-threads';
 
 const generateDisplayId = (index: number): string => {
   return `SAND-${index + 1}`;
-};
-
-// Backend API request structure
-interface BackendRequest {
-  threadId: string;
-  messages: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: string;
-  }>;
-  currentMessage: string;
-}
-
-// Mock API responses with realistic LLM timing and context
-const getMockResponse = async (backendRequest: BackendRequest): Promise<string> => {
-  // Log what's being sent to backend
-  console.log('🚀 SENDING TO BACKEND:', JSON.stringify(backendRequest, null, 2));
-  
-  // Simulate real LLM response time (5-12 seconds)
-  const delay = 5000 + Math.random() * 7000;
-  await new Promise(resolve => setTimeout(resolve, delay));
-  
-  const { currentMessage, messages } = backendRequest;
-  const contextLength = messages.length;
-  
-  const responses = [
-    `Based on your question "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}" and our conversation history (${contextLength} previous messages), here's what I found. This response considers the full context of our discussion and provides comprehensive insights from current sources.`,
-    `I've analyzed your query about "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}" in the context of our ${contextLength} previous exchanges. Here are the key findings that build upon our conversation thread.`,
-    `Great follow-up question! Regarding "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}", considering our conversation history, the current data suggests several important points that I'll break down for you.`,
-    `Let me help with that. Based on your question "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}" and the context from our ${contextLength} previous messages, here's a comprehensive answer with the most up-to-date information.`,
-    `That's an interesting question about "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}". Considering our conversation thread, let me provide you with a detailed explanation that builds on what we've discussed.`,
-    `I understand you're asking about "${currentMessage.slice(0, 30)}${currentMessage.length > 30 ? '...' : ''}". Based on our conversation context (${contextLength} messages), here's what I can tell you from current sources and real-time data.`
-  ];
-  
-  const response = responses[Math.floor(Math.random() * responses.length)];
-  
-  // Log the mock response
-  console.log('✅ MOCK RESPONSE:', response);
-  
-  return response;
 };
 
 const loadThreads = (): ChatThread[] => {
@@ -78,9 +40,11 @@ const saveThreads = (threads: ChatThread[]) => {
 };
 
 export const useChat = () => {
+  const { authData } = useAuth();
   const [threads, setThreads] = useState<ChatThread[]>(() => loadThreads());
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   
   // Track active requests to handle concurrent responses
   const activeRequests = useRef<Set<string>>(new Set());
@@ -89,48 +53,65 @@ export const useChat = () => {
     saveThreads(threads);
   }, [threads]);
 
-  // Create new thread - this should clear context and start fresh
+  // Create new thread - this should show the prompt dialog
   const createNewThread = useCallback(() => {
-    // Clear the current active thread to create fresh context
-    setActiveThreadId(null);
-    
-    // Return null to indicate no thread is active (fresh state)
+    setShowNewChatPrompt(true);
     return null;
   }, []);
 
+  // Handle new thread creation with configuration
+  const handleNewThreadPrompt = useCallback((prompt: NewThreadPrompt) => {
+    if (!authData) return;
+
+    const userName = ChatService.extractUserName(authData.email);
+    const threadIndex = threads.length;
+    
+    const config: ThreadConfig = {
+      botName: prompt.botName,
+      rules: prompt.rules,
+      userName
+    };
+
+    const newThread: ChatThread = {
+      id: uuidv4(),
+      title: `${prompt.botName} Chat`,
+      displayId: generateDisplayId(threadIndex),
+      conversations: [], // Keep for backward compatibility
+      messages: [],
+      config,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Add the new thread and set it as active
+    setThreads(prev => [newThread, ...prev]);
+    setActiveThreadId(newThread.id);
+    setShowNewChatPrompt(false);
+  }, [authData, threads.length]);
+
+  const cancelNewChatPrompt = useCallback(() => {
+    setShowNewChatPrompt(false);
+  }, []);
+
   const sendMessage = useCallback(async (content: string, threadId?: string, image?: string) => {
-    if (!content.trim()) return;
+    if (!content.trim() || !authData) return;
 
     let currentThreadId = threadId || activeThreadId;
     
-    // Auto-create thread if none exists (fresh context)
+    // If no thread is active, we need a configuration first
     if (!currentThreadId) {
-      const threadIndex = threads.length;
-      
-      // Create thread title with 100 char limit and truncation
-      const threadTitle = content.length > 100 
-        ? content.slice(0, 100) + '...' 
-        : content;
-      
-      const newThread: ChatThread = {
-        id: uuidv4(),
-        title: threadTitle,
-        displayId: generateDisplayId(threadIndex),
-        conversations: [], // Keep for backward compatibility
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      // Add the new thread and set it as active
-      setThreads(prev => [newThread, ...prev]);
-      setActiveThreadId(newThread.id);
-      currentThreadId = newThread.id;
+      setShowNewChatPrompt(true);
+      return;
     }
 
     // Get current thread for context
     const currentThread = threads.find(t => t.id === currentThreadId);
-    if (!currentThread) return;
+    if (!currentThread || !currentThread.config) {
+      console.error('Thread not found or missing config:', { currentThreadId, currentThread });
+      return;
+    }
+
+    console.log('📝 Sending message:', { content, currentThreadId, currentThread });
 
     // Generate unique request ID for this message
     const requestId = uuidv4();
@@ -153,18 +134,24 @@ export const useChat = () => {
       isLoading: true
     };
 
+    console.log('📝 Adding messages:', { userMessage, loadingMessage });
+
     // Update thread with user message and loading state immediately
     setThreads(prev => {
-      return prev.map(thread => {
+      const updated = prev.map(thread => {
         if (thread.id === currentThreadId) {
-          return {
+          const newThread = {
             ...thread,
             messages: [...thread.messages, userMessage, loadingMessage],
             updatedAt: new Date()
           };
+          console.log('📝 Updated thread:', newThread);
+          return newThread;
         }
         return thread;
       });
+      console.log('📝 All threads after update:', updated);
+      return updated;
     });
 
     // Set loading state only if this is the first active request
@@ -173,30 +160,24 @@ export const useChat = () => {
     }
 
     try {
-      // Prepare backend request with full conversation context
-      const backendRequest: BackendRequest = {
-        threadId: currentThreadId,
-        messages: currentThread.messages
-          .filter(msg => !msg.isLoading) // Don't send loading messages
-          .map(msg => ({
-            role: msg.role,
-            content: msg.content,
-            timestamp: msg.timestamp.toISOString()
-          })),
-        currentMessage: content.trim(),
-        ...(image && { image: image })
-      };
-
-      // Get mock response with full context (this runs concurrently)
-      const response = await getMockResponse(backendRequest);
+      // Call the actual backend service with messages excluding loading messages
+      const response = await ChatService.sendMessage(
+        currentThread.messages.filter(msg => !msg.isLoading), // Don't send loading messages
+        content.trim(),
+        currentThread.config.userName,
+        currentThread.config.botName,
+        currentThread.config.rules
+      );
+      
+      console.log('📝 Backend response:', response);
       
       // Only update if this request is still active (not cancelled)
       if (activeRequests.current.has(requestId)) {
         // Update thread with assistant response
         setThreads(prev => {
-          return prev.map(thread => {
+          const updated = prev.map(thread => {
             if (thread.id === currentThreadId) {
-              return {
+              const newThread = {
                 ...thread,
                 messages: thread.messages.map(msg => 
                   msg.id === loadingMessage.id 
@@ -205,9 +186,13 @@ export const useChat = () => {
                 ),
                 updatedAt: new Date()
               };
+              console.log('📝 Updated thread with response:', newThread);
+              return newThread;
             }
             return thread;
           });
+          console.log('📝 All threads after response update:', updated);
+          return updated;
         });
       }
     } catch (error) {
@@ -234,7 +219,7 @@ export const useChat = () => {
         setIsLoading(false);
       }
     }
-  }, [activeThreadId, threads]);
+  }, [activeThreadId, threads, authData]);
 
   const selectThread = useCallback((threadId: string) => {
     setActiveThreadId(threadId);
@@ -251,12 +236,22 @@ export const useChat = () => {
 
   const activeThread = threads.find(thread => thread.id === activeThreadId);
 
+  console.log('📝 Current state:', { 
+    threads: threads.length, 
+    activeThreadId, 
+    activeThread: activeThread?.id,
+    activeThreadMessages: activeThread?.messages?.length 
+  });
+
   return {
     threads,
     activeThread,
     activeThreadId,
     isLoading,
+    showNewChatPrompt,
     createNewThread,
+    handleNewThreadPrompt,
+    cancelNewChatPrompt,
     sendMessage,
     selectThread,
     deleteThread

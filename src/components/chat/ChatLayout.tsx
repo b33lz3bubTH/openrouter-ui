@@ -2,6 +2,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { ChatInput } from "@/components/chat/ChatInput";
+import { NewChatPrompt } from "@/components/NewChatPrompt";
 import { useChat } from "@/hooks/useChat";
 import { Button } from "@/components/ui/button";
 import { SplineBackground } from "@/components/ui/SplineBackground";
@@ -15,7 +16,10 @@ export const ChatLayout = () => {
     activeThread,
     activeThreadId,
     isLoading,
+    showNewChatPrompt,
     createNewThread,
+    handleNewThreadPrompt,
+    cancelNewChatPrompt,
     sendMessage,
     selectThread,
     deleteThread
@@ -48,53 +52,52 @@ export const ChatLayout = () => {
         <div className="flex-1 flex flex-col h-screen">
           {/* Header - Fixed */}
           <header className="flex-shrink-0 h-14 flex items-center justify-between border-b bg-card px-6">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-3">
               <SidebarTrigger />
-              <div className="flex items-center space-x-3">
-                {/* <SplineLogo size="sm" /> */}
-                <div>
-                  <div className="font-semibold text-foreground">
-                    {activeThread?.displayId || 'New Chat'}
-                  </div>
-                  {activeThread && (
-                    <div className="text-xs text-muted-foreground">
-                      {activeThread.messages.length} messages
-                    </div>
-                  )}
-                </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium">
+                  {activeThread?.title || 'No Active Chat'}
+                </span>
+                {activeThread?.config && (
+                  <span className="text-xs text-muted-foreground">
+                    {activeThread.config.userName} ↔ {activeThread.config.botName}
+                  </span>
+                )}
               </div>
             </div>
             
-            <div className="flex items-center space-x-2">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 w-8 p-0"
-                onClick={() => toast.success("Siri-style toast working! 🎉")}
-                title="Test Toast"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </div>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
           </header>
-          
-          {/* Chat Area - Scrollable, takes remaining space */}
-          <div className="flex-1 overflow-auto">
-            <ChatArea 
-              activeThread={activeThread}
-              isLoading={isLoading}
-            />
-          </div>
-          
-          {/* Chat Input - Fixed at bottom */}
-          <div className="flex-shrink-0">
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              isLoading={isLoading}
-            />
+
+          {/* Chat Content - Scrollable */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 overflow-hidden">
+              <ChatArea 
+                activeThread={activeThread}
+                isLoading={isLoading}
+              />
+            </div>
+            
+            {/* Chat Input - Fixed */}
+            <div className="flex-shrink-0">
+              <ChatInput 
+                onSendMessage={handleSendMessage}
+                isLoading={isLoading}
+              />
+            </div>
           </div>
         </div>
       </div>
+
+      {/* New Chat Prompt Dialog */}
+      {showNewChatPrompt && (
+        <NewChatPrompt
+          onSubmit={handleNewThreadPrompt}
+          onCancel={cancelNewChatPrompt}
+        />
+      )}
     </SidebarProvider>
   );
 };

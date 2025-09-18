@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { ChatService } from '@/services/chatService';
 
 interface AuthData {
   email: string;
   genericPrompt: string;
+  name: string;
 }
 
 const AUTH_KEY = 'auth-data';
@@ -16,6 +18,10 @@ export const useAuth = () => {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
+        // Migrate old data format
+        if (parsed.email && !parsed.name) {
+          parsed.name = ChatService.extractUserName(parsed.email);
+        }
         setAuthData(parsed);
         setIsAuthenticated(true);
       } catch (error) {
@@ -26,7 +32,8 @@ export const useAuth = () => {
   }, []);
 
   const login = (email: string, genericPrompt: string) => {
-    const data = { email, genericPrompt };
+    const name = ChatService.extractUserName(email);
+    const data = { email, genericPrompt, name };
     sessionStorage.setItem(AUTH_KEY, JSON.stringify(data));
     setAuthData(data);
     setIsAuthenticated(true);
