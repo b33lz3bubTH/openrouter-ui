@@ -73,7 +73,7 @@ export const ChatLayout = () => {
 
           {/* Chat Content - Scrollable */}
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1" style={{ overflowY: 'auto' }}>
               <ChatArea 
                 activeThread={activeThread}
                 isLoading={isLoading}
