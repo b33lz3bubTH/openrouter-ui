@@ -1,6 +1,6 @@
 import { BackendChatRequest, BackendChatResponse, BackendContextMessage, Message } from '@/types/chat';
 
-const API_BASE_URL = 'http://0.0.0.0:9999';
+const API_BASE_URL = 'https://3b1b6575caab.ngrok-free.app';
 
 export class ChatService {
   static async sendMessage(
