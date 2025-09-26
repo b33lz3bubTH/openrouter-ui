@@ -2,6 +2,21 @@ import { BackendChatRequest, BackendChatResponse, BackendContextMessage, Message
 
 const API_BASE_URL = 'https://3b1b6575caab.ngrok-free.app';
 
+function resolveApiBaseUrl(): string {
+  try {
+    const stored = sessionStorage.getItem('auth-data');
+    if (stored) {
+      const parsed = JSON.parse(stored) as { apiUrl?: string };
+      if (parsed.apiUrl && parsed.apiUrl.trim()) {
+        return parsed.apiUrl.trim().replace(/\/$/, '');
+      }
+    }
+  } catch (err) {
+    console.warn('Unable to parse auth-data for apiUrl, using default:', err);
+  }
+  return API_BASE_URL;
+}
+
 export class ChatService {
   static async sendMessage(
     messages: Message[],
@@ -40,7 +55,8 @@ export class ChatService {
 
       console.log('🚀 SENDING TO BACKEND:', JSON.stringify(request, null, 2));
 
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const baseUrl = resolveApiBaseUrl();
+      const response = await fetch(`${baseUrl}/chat`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',

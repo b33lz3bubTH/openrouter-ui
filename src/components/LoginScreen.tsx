@@ -6,17 +6,19 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface LoginScreenProps {
-  onLogin: (email: string, genericPrompt: string) => void;
+  onLogin: (email: string, genericPrompt: string, apiUrl?: string) => void;
 }
 
 export const LoginScreen = ({ onLogin }: LoginScreenProps) => {
   const [email, setEmail] = useState('');
   const [genericPrompt, setGenericPrompt] = useState('');
+  const [apiUrl, setApiUrl] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (email.trim() && genericPrompt.trim()) {
-      onLogin(email.trim(), genericPrompt.trim());
+      const trimmedUrl = apiUrl.trim();
+      onLogin(email.trim(), genericPrompt.trim(), trimmedUrl || undefined);
     }
   };
 
@@ -49,6 +51,17 @@ export const LoginScreen = ({ onLogin }: LoginScreenProps) => {
                 placeholder="Enter your generic prompt or instructions..."
                 className="min-h-[100px]"
                 required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="api-url">API URL (optional)</Label>
+              <Input
+                id="api-url"
+                type="url"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                placeholder="https://your-backend.example.com"
               />
             </div>
             
