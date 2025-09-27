@@ -1,0 +1,12 @@
+-- building
+docker build -t perplexa-app .
+
+-- save
+docker save -o perplexa-app.tar perplexa-app:latest
+
+
+-- load
+docker load -i perplexa-app.tar
+
+-- run
+docker run -d -p 8080:80 --name perplexa-app-container perplexa-app:latest
