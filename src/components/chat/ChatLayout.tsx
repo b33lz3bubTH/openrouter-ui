@@ -41,13 +41,20 @@ export const ChatLayout = () => {
       <SplineBackground opacity={backgroundOpacity}/>
       
       <div className="min-h-screen flex w-full bg-transparent">
-        <AppSidebar
-          threads={threads}
-          activeThreadId={activeThreadId}
-          onNewChat={createNewThread}
-          onSelectThread={selectThread}
-          onDeleteThread={deleteThread}
-        />
+      <AppSidebar
+        threads={threads}
+        activeThreadId={activeThreadId}
+        onNewChat={createNewThread}
+        onSelectThread={selectThread}
+        onDeleteThread={deleteThread}
+        onClearAll={() => {
+          if (window.confirm('Clear all chat history and logout? This cannot be undone.')) {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+          }
+        }}
+      />
         
         <div className="flex-1 flex flex-col h-screen">
           {/* Header - Fixed */}

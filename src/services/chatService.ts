@@ -66,11 +66,22 @@ export class ChatService {
         throw new Error('OpenRouter API key and model name are required');
       }
 
-      // Build messages array for OpenRouter
-      const apiMessages: any[] = messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'assistant' : 'user',
-        content: msg.content
-      }));
+      // Add system prompt if available
+      const apiMessages: any[] = [];
+      if (config.genericPrompt) {
+        apiMessages.push({
+          role: 'system',
+          content: config.genericPrompt
+        });
+      }
+
+      // Add all previous conversation messages for context
+      messages.forEach(msg => {
+        apiMessages.push({
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: msg.content
+        });
+      });
 
       // Add current message with optional image
       if (imageData) {

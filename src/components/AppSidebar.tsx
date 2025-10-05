@@ -25,6 +25,7 @@ interface AppSidebarProps {
   onNewChat: () => void;
   onSelectThread: (threadId: string) => void;
   onDeleteThread: (threadId: string) => void;
+  onClearAll: () => void;
 }
 
 const userProfile: UserProfile = {
@@ -38,7 +39,8 @@ export function AppSidebar({
   activeThreadId,
   onNewChat,
   onSelectThread,
-  onDeleteThread
+  onDeleteThread,
+  onClearAll
 }: AppSidebarProps) {
   const { theme, toggleTheme } = useTheme();
 
@@ -132,37 +134,31 @@ export function AppSidebar({
         )}
       </SidebarContent>
 
-      {/* User Profile Footer */}
+      {/* Footer Actions */}
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center space-x-3">
-          <Avatar className="h-8 w-8">
-            <AvatarImage src={userProfile.avatar} />
-            <AvatarFallback className="bg-muted text-muted-foreground text-sm">
-              {userProfile.initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-sidebar-foreground truncate">
-              {userProfile.name}
-            </div>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-8 w-8 p-0"
-              onClick={toggleTheme}
-            >
-              {theme === 'dark' ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </div>
+        <div className="flex items-center justify-between">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-8 w-8 p-0"
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </Button>
+          
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={onClearAll}
+            title="Clear all data"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
       </SidebarFooter>
     </Sidebar>
