@@ -63,7 +63,11 @@ export const useChat = () => {
   const handleNewThreadPrompt = useCallback((prompt: NewThreadPrompt) => {
     if (!authData) return;
 
-    const userName = ChatService.extractUserName(authData.email);
+    // For OpenRouter, use default user name since there's no email
+    const userName = authData.backend === 'openrouter' 
+      ? 'User' 
+      : ChatService.extractUserName(authData.email || '');
+    
     const threadIndex = threads.length;
     
     const config: ThreadConfig = {
