@@ -2,17 +2,37 @@ import { BackendChatRequest, BackendChatResponse, BackendContextMessage, Message
 
 const API_BASE_URL = 'https://3b1b6575caab.ngrok-free.app';
 
-function resolveApiBaseUrl(): string {
+interface AuthConfig {
+  backend: 'custom' | 'openrouter';
+  apiUrl?: string;
+  modelName?: string;
+  apiKey?: string;
+  genericPrompt?: string;
+}
+
+function getAuthConfig(): AuthConfig {
   try {
     const stored = sessionStorage.getItem('auth-data');
     if (stored) {
-      const parsed = JSON.parse(stored) as { apiUrl?: string };
-      if (parsed.apiUrl && parsed.apiUrl.trim()) {
-        return parsed.apiUrl.trim().replace(/\/$/, '');
-      }
+      const parsed = JSON.parse(stored);
+      return {
+        backend: parsed.backend || 'custom',
+        apiUrl: parsed.apiUrl,
+        modelName: parsed.modelName,
+        apiKey: parsed.apiKey,
+        genericPrompt: parsed.genericPrompt
+      };
     }
   } catch (err) {
-    console.warn('Unable to parse auth-data for apiUrl, using default:', err);
+    console.warn('Unable to parse auth-data:', err);
+  }
+  return { backend: 'custom' };
+}
+
+function resolveApiBaseUrl(): string {
+  const config = getAuthConfig();
+  if (config.apiUrl && config.apiUrl.trim()) {
+    return config.apiUrl.trim().replace(/\/$/, '');
   }
   return API_BASE_URL;
 }
@@ -23,7 +43,90 @@ export class ChatService {
     currentMessage: string,
     userName: string,
     botName: string,
-    rules: string
+    rules: string,
+    imageData?: string
+  ): Promise<string> {
+    const config = getAuthConfig();
+    
+    if (config.backend === 'openrouter') {
+      return this.sendOpenRouterMessage(messages, currentMessage, config, imageData);
+    } else {
+      return this.sendCustomMessage(messages, currentMessage, userName, botName, rules, config);
+    }
+  }
+
+  private static async sendOpenRouterMessage(
+    messages: Message[],
+    currentMessage: string,
+    config: AuthConfig,
+    imageData?: string
+  ): Promise<string> {
+    try {
+      if (!config.apiKey || !config.modelName) {
+        throw new Error('OpenRouter API key and model name are required');
+      }
+
+      // Build messages array for OpenRouter
+      const apiMessages: any[] = messages.map(msg => ({
+        role: msg.role === 'assistant' ? 'assistant' : 'user',
+        content: msg.content
+      }));
+
+      // Add current message with optional image
+      if (imageData) {
+        apiMessages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: currentMessage },
+            { type: 'image_url', image_url: { url: imageData } }
+          ]
+        });
+      } else {
+        apiMessages.push({
+          role: 'user',
+          content: currentMessage
+        });
+      }
+
+      console.log('🚀 SENDING TO OPENROUTER:', { model: config.modelName, messages: apiMessages });
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+          'HTTP-Referer': window.location.origin,
+          'X-Title': 'Perplexity Pro',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: config.modelName,
+          messages: apiMessages
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ OpenRouter error:', response.status, errorText);
+        throw new Error(`OpenRouter API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ OPENROUTER RESPONSE:', data);
+      
+      return data.choices?.[0]?.message?.content || 'No response';
+    } catch (error) {
+      console.error('❌ Error calling OpenRouter:', error);
+      throw error;
+    }
+  }
+
+  private static async sendCustomMessage(
+    messages: Message[],
+    currentMessage: string,
+    userName: string,
+    botName: string,
+    rules: string,
+    config: AuthConfig
   ): Promise<string> {
     try {
       // Convert messages to backend context format

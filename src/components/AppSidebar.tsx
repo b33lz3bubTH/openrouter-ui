@@ -29,6 +29,7 @@ interface AppSidebarProps {
 
 const userProfile: UserProfile = {
   name: commonConfig.projectName,
+  email: '',
   initials: commonConfig.projectName.charAt(0)
 };
 

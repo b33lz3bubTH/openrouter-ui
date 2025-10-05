@@ -166,7 +166,8 @@ export const useChat = () => {
         content.trim(),
         currentThread.config.userName,
         currentThread.config.botName,
-        currentThread.config.rules
+        currentThread.config.rules,
+        image // Pass image data if available
       );
       
       console.log('📝 Backend response:', response);

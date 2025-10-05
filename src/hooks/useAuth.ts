@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react';
 import { ChatService } from '@/services/chatService';
 
 interface AuthData {
-  email: string;
-  genericPrompt: string;
-  name: string;
+  backend: 'custom' | 'openrouter';
+  email?: string;
+  genericPrompt?: string;
+  name?: string;
   apiUrl?: string;
+  modelName?: string;
+  apiKey?: string;
 }
 
 const AUTH_KEY = 'auth-data';
@@ -32,9 +35,26 @@ export const useAuth = () => {
     }
   }, []);
 
-  const login = (email: string, genericPrompt: string, apiUrl?: string) => {
-    const name = ChatService.extractUserName(email);
-    const data: AuthData = { email, genericPrompt, name, apiUrl };
+  const login = (config: {
+    backend: 'custom' | 'openrouter';
+    email?: string;
+    genericPrompt?: string;
+    apiUrl?: string;
+    modelName?: string;
+    apiKey?: string;
+  }) => {
+    const data: AuthData = {
+      backend: config.backend,
+      ...(config.backend === 'custom' ? {
+        email: config.email,
+        genericPrompt: config.genericPrompt,
+        name: config.email ? ChatService.extractUserName(config.email) : undefined,
+        apiUrl: config.apiUrl
+      } : {
+        modelName: config.modelName,
+        apiKey: config.apiKey
+      })
+    };
     sessionStorage.setItem(AUTH_KEY, JSON.stringify(data));
     setAuthData(data);
     setIsAuthenticated(true);
