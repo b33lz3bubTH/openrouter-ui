@@ -47,7 +47,7 @@ export function AppSidebar({
   const navigate = useNavigate();
 
   return (
-    <Sidebar className="border-r bg-sidebar border-sidebar-border">
+    <Sidebar className="border-r bg-sidebar border-sidebar-border" collapsible="icon">
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         {/* Logo and Navigation */}
         <div className="flex items-center justify-between mb-4">
