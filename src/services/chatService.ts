@@ -38,6 +38,44 @@ function resolveApiBaseUrl(): string {
 }
 
 export class ChatService {
+  // Smart message trimming to keep total chars under limit
+  private static trimMessages(messages: Message[], maxChars: number = 3000): Message[] {
+    // Calculate total chars
+    let totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
+    
+    if (totalChars <= maxChars) {
+      return messages;
+    }
+
+    // Always include last 3 messages (highest priority)
+    const lastMessages = messages.slice(-3);
+    const firstMessages = messages.slice(0, 2); // First 2 messages for context
+    
+    // Calculate remaining budget
+    const lastChars = lastMessages.reduce((sum, msg) => sum + msg.content.length, 0);
+    const firstChars = firstMessages.reduce((sum, msg) => sum + msg.content.length, 0);
+    let remainingChars = maxChars - lastChars - firstChars;
+    
+    // If we still have budget, add some middle messages
+    const middleMessages: Message[] = [];
+    if (messages.length > 5 && remainingChars > 0) {
+      const middleStart = 2;
+      const middleEnd = messages.length - 3;
+      const middlePool = messages.slice(middleStart, middleEnd);
+      
+      // Add middle messages until we run out of budget
+      for (const msg of middlePool) {
+        if (msg.content.length <= remainingChars) {
+          middleMessages.push(msg);
+          remainingChars -= msg.content.length;
+        }
+      }
+    }
+    
+    // Combine: first + middle + last
+    return [...firstMessages, ...middleMessages, ...lastMessages];
+  }
+
   static async sendMessage(
     messages: Message[],
     currentMessage: string,
@@ -49,7 +87,7 @@ export class ChatService {
     const config = getAuthConfig();
     
     if (config.backend === 'openrouter') {
-      return this.sendOpenRouterMessage(messages, currentMessage, config, imageData);
+      return this.sendOpenRouterMessage(messages, currentMessage, rules, config, imageData);
     } else {
       return this.sendCustomMessage(messages, currentMessage, userName, botName, rules, config);
     }
@@ -58,6 +96,7 @@ export class ChatService {
   private static async sendOpenRouterMessage(
     messages: Message[],
     currentMessage: string,
+    rules: string,
     config: AuthConfig,
     imageData?: string
   ): Promise<string> {
@@ -66,17 +105,30 @@ export class ChatService {
         throw new Error('OpenRouter API key and model name are required');
       }
 
-      // Add system prompt if available
+      // Trim messages to keep under 3000 chars
+      const trimmedMessages = this.trimMessages(messages);
+
+      // Build system prompt: generic prompt + roleplay rules
       const apiMessages: any[] = [];
+      const systemParts: string[] = [];
+      
       if (config.genericPrompt) {
+        systemParts.push(config.genericPrompt);
+      }
+      
+      if (rules && rules.trim()) {
+        systemParts.push(`\n\nRoleplay Rules:\n${rules}`);
+      }
+      
+      if (systemParts.length > 0) {
         apiMessages.push({
           role: 'system',
-          content: config.genericPrompt
+          content: systemParts.join('\n')
         });
       }
 
-      // Add all previous conversation messages for context
-      messages.forEach(msg => {
+      // Add trimmed conversation messages for context
+      trimmedMessages.forEach(msg => {
         apiMessages.push({
           role: msg.role === 'assistant' ? 'assistant' : 'user',
           content: msg.content
@@ -140,13 +192,16 @@ export class ChatService {
     config: AuthConfig
   ): Promise<string> {
     try {
-      // Convert messages to backend context format
+      // Trim messages to keep under 3000 chars
+      const trimmedMessages = this.trimMessages(messages);
+      
+      // Convert trimmed messages to backend context format
       const context: BackendContextMessage[] = [];
       
       // Group messages into conversation pairs
-      for (let i = 0; i < messages.length; i += 2) {
-        const userMsg = messages[i];
-        const botMsg = messages[i + 1];
+      for (let i = 0; i < trimmedMessages.length; i += 2) {
+        const userMsg = trimmedMessages[i];
+        const botMsg = trimmedMessages[i + 1];
         
         if (userMsg && userMsg.role === 'user') {
           const contextObj: BackendContextMessage = {};
