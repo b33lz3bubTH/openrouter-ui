@@ -252,9 +252,7 @@ export class ChatService {
   }
 
   static extractUserName(email: string): string {
-    // Extract name from email (part before @)
-    const username = email.split('@')[0];
-    // Convert to proper case (capitalize first letter)
-    return username.charAt(0).toUpperCase() + username.slice(1);
+    // Extract the first part before @ (e.g., souravsunju from souravsunju@gmail.com)
+    return email.split('@')[0];
   }
 }

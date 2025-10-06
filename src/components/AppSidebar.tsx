@@ -1,4 +1,5 @@
 import { MessageSquare, Plus, Trash2, Settings, Info, Menu, User, Sun, Moon } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SplineLogo } from "@/components/ui/SplineLogo";
@@ -43,6 +44,7 @@ export function AppSidebar({
   onClearAll
 }: AppSidebarProps) {
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
 
   return (
     <Sidebar className="border-r bg-sidebar border-sidebar-border">
@@ -57,14 +59,21 @@ export function AppSidebar({
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
               <Menu className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0"
+              onClick={() => navigate('/about')}
+            >
               <Info className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0"
+              onClick={() => navigate('/settings')}
+            >
               <Settings className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <User className="h-4 w-4" />
             </Button>
           </div>
         </div>
