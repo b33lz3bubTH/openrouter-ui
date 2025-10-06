@@ -36,29 +36,29 @@ export const ChatLayout = () => {
   const backgroundOpacity = theme === 'light' ? 0.1 : 0.8;
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={true}>
       {/* Spline Background */}
       <SplineBackground opacity={backgroundOpacity}/>
       
       <div className="min-h-screen flex w-full bg-transparent">
-      <AppSidebar
-        threads={threads}
-        activeThreadId={activeThreadId}
-        onNewChat={createNewThread}
-        onSelectThread={selectThread}
-        onDeleteThread={deleteThread}
-        onClearAll={() => {
-          if (window.confirm('Clear all chat history and logout? This cannot be undone.')) {
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.reload();
-          }
-        }}
-      />
+        <AppSidebar
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onNewChat={createNewThread}
+          onSelectThread={selectThread}
+          onDeleteThread={deleteThread}
+          onClearAll={() => {
+            if (window.confirm('Clear all chat history and logout? This cannot be undone.')) {
+              localStorage.clear();
+              sessionStorage.clear();
+              window.location.reload();
+            }
+          }}
+        />
         
         <div className="flex-1 flex flex-col h-screen">
           {/* Header - Fixed */}
-          <header className="flex-shrink-0 h-14 flex items-center justify-between border-b bg-card px-6">
+          <header className="flex-shrink-0 h-14 flex items-center justify-between border-b bg-card/50 backdrop-blur-sm px-6">
             <div className="flex items-center gap-3">
               <SidebarTrigger />
               <div className="flex flex-col">
