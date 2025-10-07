@@ -61,9 +61,11 @@ export const ChatLayout = () => {
           <header className="flex-shrink-0 h-14 flex items-center justify-between border-b bg-card/50 backdrop-blur-sm px-4 md:px-6">
             {/* Mobile menu trigger */}
             <SidebarTrigger asChild className="md:hidden">
-              <Button variant="ghost" size="icon" className="h-9 w-9">
-                <Menu className="h-5 w-5" />
-              </Button>
+              <div>
+                <Button variant="ghost" size="icon" className="h-9 w-9">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </div>
             </SidebarTrigger>
 
             <div className="flex flex-col flex-1 min-w-0 ml-2 md:ml-0">

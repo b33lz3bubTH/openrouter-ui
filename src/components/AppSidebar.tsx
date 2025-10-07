@@ -55,8 +55,10 @@ export function AppSidebar({
           className="w-full gap-2"
           variant="default"
         >
-          <Plus className="h-4 w-4 flex-shrink-0" />
-          {open && <span>New Chat</span>}
+          <div className="flex items-center gap-2">
+            <Plus className="h-4 w-4 flex-shrink-0" />
+            {open && <span>New Chat</span>}
+          </div>
         </Button>
       </SidebarHeader>
 
@@ -65,9 +67,9 @@ export function AppSidebar({
         {threads.length > 0 && (
           <SidebarGroup>
             {open && (
-              <SidebarGroupLabel className="px-2 text-xs font-medium text-muted-foreground mb-2">
-                Recent Chats
-              </SidebarGroupLabel>
+                <SidebarGroupLabel className="px-2 text-xs font-medium text-muted-foreground mb-2">
+                  <span>Recent Chats</span>
+                </SidebarGroupLabel>
             )}
             <SidebarGroupContent>
               <SidebarMenu className="space-y-1">
@@ -82,30 +84,32 @@ export function AppSidebar({
                       )}
                       tooltip={!open ? thread.title : undefined}
                     >
-                      <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                      {open && (
-                        <>
-                          <div className="flex-1 min-w-0 text-left">
-                            <div className="truncate text-sm font-medium">
-                              {thread.title}
+                      <div className="flex items-center w-full">
+                        <MessageSquare className="h-4 w-4 flex-shrink-0" />
+                        {open && (
+                          <>
+                            <div className="flex-1 min-w-0 text-left">
+                              <div className="truncate text-sm font-medium">
+                                {thread.title}
+                              </div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {thread.displayId} • {thread.messages.length} msg
+                              </div>
                             </div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {thread.displayId} • {thread.messages.length} msg
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteThread(thread.id);
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </>
-                      )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteThread(thread.id);
+                              }}
+                            >
+                              <div><Trash2 className="h-3 w-3" /></div>
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -135,7 +139,7 @@ export function AppSidebar({
               onClick={() => navigate('/about')}
               title="About"
             >
-              <Info className="h-4 w-4" />
+              <div><Info className="h-4 w-4" /></div>
             </Button>
             <Button 
               variant="ghost" 
@@ -144,7 +148,7 @@ export function AppSidebar({
               onClick={() => navigate('/settings')}
               title="Settings"
             >
-              <Settings className="h-4 w-4" />
+              <div><Settings className="h-4 w-4" /></div>
             </Button>
           </div>
 
@@ -157,11 +161,13 @@ export function AppSidebar({
               onClick={toggleTheme}
               title="Toggle theme"
             >
+              <div>
               {theme === 'dark' ? (
                 <Sun className="h-4 w-4" />
               ) : (
                 <Moon className="h-4 w-4" />
               )}
+            </div>
             </Button>
             
             <Button 
@@ -171,7 +177,7 @@ export function AppSidebar({
               onClick={onClearAll}
               title="Clear all data"
             >
-              <Trash2 className="h-4 w-4" />
+              <div><Trash2 className="h-4 w-4" /></div>
             </Button>
           </div>
         </div>
