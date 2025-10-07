@@ -59,18 +59,15 @@ export const ChatLayout = () => {
         <div className="flex-1 flex flex-col h-screen">
           {/* Header - Fixed */}
           <header className="flex-shrink-0 h-14 flex items-center justify-between border-b bg-card/50 backdrop-blur-sm px-6">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger />
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">
-                  {activeThread?.title || 'No Active Chat'}
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">
+                {activeThread?.title || 'No Active Chat'}
+              </span>
+              {activeThread?.config && (
+                <span className="text-xs text-muted-foreground">
+                  {activeThread.config.userName} ↔ {activeThread.config.botName}
                 </span>
-                {activeThread?.config && (
-                  <span className="text-xs text-muted-foreground">
-                    {activeThread.config.userName} ↔ {activeThread.config.botName}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
             
             <Button variant="ghost" size="icon">

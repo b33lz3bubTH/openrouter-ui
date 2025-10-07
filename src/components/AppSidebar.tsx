@@ -1,4 +1,4 @@
-import { MessageSquare, Plus, Trash2, Settings, Info, Sun, Moon } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Settings, Info, Sun, Moon, ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import {
 import { ChatThread } from "@/types/chat";
 import { useTheme } from "@/contexts/ThemeContext";
 import { commonConfig } from "@/utils/common-config";
+import { cn } from "@/lib/utils";
 
 interface AppSidebarProps {
   threads: ChatThread[];
@@ -37,59 +38,49 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const { open } = useSidebar();
+  const { open, toggleSidebar } = useSidebar();
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="p-4 border-b border-sidebar-border">
-        {/* Logo and Navigation */}
-        <div className="flex items-center justify-between mb-4">
-          {open && (
-            <div className="flex items-center space-x-2">
-              <span className="font-bold text-lg text-sidebar-foreground">{commonConfig.projectName}</span>
-            </div>
-          )}
-          <div className="flex items-center space-x-1">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-8 w-8 p-0"
-              onClick={() => navigate('/about')}
-              title="About"
-            >
-              <Info className="h-4 w-4" />
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-8 w-8 p-0"
-              onClick={() => navigate('/settings')}
-              title="Settings"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
+    <Sidebar collapsible="icon" className="border-r">
+      <SidebarHeader className="p-4 border-b">
+        <div className="flex items-center justify-between gap-2">
+          {/* Logo/Title */}
+          <div className={cn("flex items-center gap-2 transition-all", !open && "opacity-0 w-0")}>
+            <MessageSquare className="h-5 w-5 text-primary flex-shrink-0" />
+            <span className="font-semibold text-lg truncate">{commonConfig.projectName}</span>
           </div>
+          
+          {/* Collapse Button */}
+          <Button 
+            variant="ghost" 
+            size="icon"
+            className="h-8 w-8 flex-shrink-0"
+            onClick={toggleSidebar}
+            title={open ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            <ChevronLeft className={cn("h-4 w-4 transition-transform", !open && "rotate-180")} />
+          </Button>
         </div>
 
         {/* New Chat Button */}
-        {open ? (
-          <Button onClick={onNewChat} className="w-full bg-foreground hover:bg-foreground/90 text-background">
-            <Plus className="h-4 w-4 mr-2" />
-            New Chat
-          </Button>
-        ) : (
-          <Button onClick={onNewChat} size="icon" className="w-full bg-foreground hover:bg-foreground/90 text-background">
-            <Plus className="h-4 w-4" />
-          </Button>
-        )}
+        <Button 
+          onClick={onNewChat} 
+          className={cn("w-full mt-4 gap-2", !open && "px-2")}
+          variant="default"
+        >
+          <Plus className="h-4 w-4 flex-shrink-0" />
+          {open && <span>New Chat</span>}
+        </Button>
       </SidebarHeader>
 
-      <SidebarContent className="px-2">
+      <SidebarContent className="p-2">
         {/* Recent Chats */}
         {threads.length > 0 && (
           <SidebarGroup>
             {open && (
-              <SidebarGroupLabel className="text-sidebar-foreground/70 font-medium">Recent</SidebarGroupLabel>
+              <SidebarGroupLabel className="px-2 text-xs font-medium text-muted-foreground">
+                Recent Chats
+              </SidebarGroupLabel>
             )}
             <SidebarGroupContent>
               <SidebarMenu className="space-y-1">
@@ -98,24 +89,27 @@ export function AppSidebar({
                     <SidebarMenuButton
                       onClick={() => onSelectThread(thread.id)}
                       isActive={activeThreadId === thread.id}
-                      className="group"
+                      className={cn(
+                        "group relative w-full justify-start gap-2 px-2 py-2",
+                        activeThreadId === thread.id && "bg-accent"
+                      )}
                       tooltip={!open ? thread.title : undefined}
                     >
-                      <MessageSquare className="h-4 w-4" />
+                      <MessageSquare className="h-4 w-4 flex-shrink-0" />
                       {open && (
-                        <div className="flex-1 min-w-0 flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
+                        <>
+                          <div className="flex-1 min-w-0 text-left">
                             <div className="truncate text-sm font-medium">
                               {thread.title}
                             </div>
-                            <div className="text-xs text-sidebar-foreground/50">
+                            <div className="text-xs text-muted-foreground">
                               {thread.displayId} • {thread.messages.length} msg
                             </div>
                           </div>
                           <Button
                             variant="ghost"
-                            size="sm"
-                            className="opacity-0 group-hover:opacity-100 h-6 w-6 p-0 ml-2"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0"
                             onClick={(e) => {
                               e.stopPropagation();
                               onDeleteThread(thread.id);
@@ -123,7 +117,7 @@ export function AppSidebar({
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
-                        </div>
+                        </>
                       )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -135,40 +129,64 @@ export function AppSidebar({
 
         {/* Empty State */}
         {threads.length === 0 && open && (
-          <div className="text-center py-8 text-muted-foreground">
-            <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No conversations yet</p>
-            <p className="text-xs mt-1">Click "New Chat" to get started</p>
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+            <MessageSquare className="h-12 w-12 mb-3 text-muted-foreground/50" />
+            <p className="text-sm font-medium text-foreground">No conversations yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Start a new chat to begin</p>
           </div>
         )}
       </SidebarContent>
 
-      {/* Footer Actions */}
-      <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center justify-between">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-8 w-8 p-0"
-            onClick={toggleTheme}
-            title="Toggle theme"
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-          </Button>
-          
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={onClearAll}
-            title="Clear all data"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+      <SidebarFooter className="p-4 border-t mt-auto">
+        <div className={cn("flex items-center gap-2", open ? "justify-between" : "flex-col")}>
+          {/* Navigation Buttons */}
+          <div className={cn("flex gap-1", !open && "flex-col")}>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => navigate('/about')}
+              title="About"
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => navigate('/settings')}
+              title="Settings"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Action Buttons */}
+          <div className={cn("flex gap-1", !open && "flex-col")}>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="h-8 w-8"
+              onClick={toggleTheme}
+              title="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </Button>
+            
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={onClearAll}
+              title="Clear all data"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>
