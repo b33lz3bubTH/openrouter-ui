@@ -1,4 +1,4 @@
-import { MessageSquare, Plus, Trash2, Settings, Info, Sun, Moon, ChevronLeft } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Settings, Info, Sun, Moon, Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,45 +38,29 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const { open, toggleSidebar } = useSidebar();
+  const { open } = useSidebar();
 
   return (
     <Sidebar collapsible="icon" className="border-r">
-      <SidebarHeader className="p-3 border-b">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          {/* Logo/Title - only show when expanded */}
-          {open && (
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <MessageSquare className="h-5 w-5 text-primary flex-shrink-0" />
-              <span className="font-semibold text-lg truncate">{commonConfig.projectName}</span>
-            </div>
-          )}
-          
-          {/* Collapse Button */}
-          <Button 
-            variant="ghost" 
-            size="icon"
-            className={cn("h-8 w-8 flex-shrink-0", !open && "mx-auto")}
-            onClick={toggleSidebar}
-            title={open ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            <ChevronLeft className={cn("h-4 w-4 transition-transform", !open && "rotate-180")} />
-          </Button>
+      <SidebarHeader className="p-4 border-b">
+        {/* Logo/Title */}
+        <div className="flex items-center gap-2 mb-4">
+          <MessageSquare className="h-5 w-5 text-primary flex-shrink-0" />
+          {open && <span className="font-semibold text-lg truncate">{commonConfig.projectName}</span>}
         </div>
 
         {/* New Chat Button */}
         <Button 
           onClick={onNewChat} 
-          className={cn("w-full gap-2", !open && "aspect-square p-0")}
+          className="w-full gap-2"
           variant="default"
-          title={!open ? "New Chat" : undefined}
         >
-          <Plus className={cn("h-4 w-4 flex-shrink-0", !open && "m-0")} />
+          <Plus className="h-4 w-4 flex-shrink-0" />
           {open && <span>New Chat</span>}
         </Button>
       </SidebarHeader>
 
-      <SidebarContent className="p-2">
+      <SidebarContent className="px-2 py-4">
         {/* Recent Chats */}
         {threads.length > 0 && (
           <SidebarGroup>
@@ -93,20 +77,19 @@ export function AppSidebar({
                       onClick={() => onSelectThread(thread.id)}
                       isActive={activeThreadId === thread.id}
                       className={cn(
-                        "group relative w-full gap-2",
-                        activeThreadId === thread.id && "bg-accent",
-                        !open && "justify-center aspect-square p-2"
+                        "group relative w-full",
+                        activeThreadId === thread.id && "bg-accent"
                       )}
                       tooltip={!open ? thread.title : undefined}
                     >
-                      <MessageSquare className={cn("h-4 w-4 flex-shrink-0", !open && "m-0")} />
+                      <MessageSquare className="h-4 w-4 flex-shrink-0" />
                       {open && (
                         <>
                           <div className="flex-1 min-w-0 text-left">
                             <div className="truncate text-sm font-medium">
                               {thread.title}
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-xs text-muted-foreground truncate">
                               {thread.displayId} • {thread.messages.length} msg
                             </div>
                           </div>
@@ -141,65 +124,14 @@ export function AppSidebar({
         )}
       </SidebarContent>
 
-      <SidebarFooter className="p-3 border-t mt-auto">
-        {open ? (
-          <div className="flex items-center justify-between gap-2">
-            {/* Navigation Buttons */}
-            <div className="flex gap-1">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => navigate('/about')}
-                title="About"
-              >
-                <Info className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => navigate('/settings')}
-                title="Settings"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-1">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="h-8 w-8"
-                onClick={toggleTheme}
-                title="Toggle theme"
-              >
-                {theme === 'dark' ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={onClearAll}
-                title="Clear all data"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        ) : (
-          // Collapsed state - show icons vertically
-          <div className="flex flex-col gap-1 items-center">
+      <SidebarFooter className="p-4 border-t mt-auto">
+        <div className={cn("flex gap-2", open ? "flex-row justify-between" : "flex-col")}>
+          {/* Navigation Buttons */}
+          <div className={cn("flex gap-1", open ? "flex-row" : "flex-col")}>
             <Button 
               variant="ghost" 
               size="icon"
-              className="h-8 w-8"
+              className="h-9 w-9"
               onClick={() => navigate('/about')}
               title="About"
             >
@@ -208,18 +140,22 @@ export function AppSidebar({
             <Button 
               variant="ghost" 
               size="icon"
-              className="h-8 w-8"
+              className="h-9 w-9"
               onClick={() => navigate('/settings')}
               title="Settings"
             >
               <Settings className="h-4 w-4" />
             </Button>
+          </div>
+
+          {/* Action Buttons */}
+          <div className={cn("flex gap-1", open ? "flex-row" : "flex-col")}>
             <Button 
               variant="ghost" 
               size="icon"
-              className="h-8 w-8"
+              className="h-9 w-9"
               onClick={toggleTheme}
-              title={theme === 'dark' ? "Light mode" : "Dark mode"}
+              title="Toggle theme"
             >
               {theme === 'dark' ? (
                 <Sun className="h-4 w-4" />
@@ -227,17 +163,18 @@ export function AppSidebar({
                 <Moon className="h-4 w-4" />
               )}
             </Button>
+            
             <Button 
               variant="ghost" 
               size="icon"
-              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+              className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
               onClick={onClearAll}
               title="Clear all data"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
-        )}
+        </div>
       </SidebarFooter>
     </Sidebar>
   );
