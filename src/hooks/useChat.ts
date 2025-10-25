@@ -18,6 +18,7 @@ const loadThreads = async (): Promise<ChatThread[]> => {
     const threads: ChatThread[] = [];
 
     for (const conversation of conversations) {
+      await ChatService.fixMessageSequences(conversation.id); // Fix sequences before loading messages
       const messages = await ChatService.getMessagesByConversation(conversation.id);
       Logger.log('Loaded messages for conversation', { conversationId: conversation.id, messages });
       threads.push({

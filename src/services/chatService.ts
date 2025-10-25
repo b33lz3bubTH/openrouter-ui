@@ -274,13 +274,28 @@ export class ChatService {
     return await db.conversations.toArray();
   }
 
-  // Save a message to the Dexie database with a sequence number
+  // Save a message to the Dexie database with a unique incremental sequence number
   static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number): Promise<void> {
     const lastMessage = await db.messages.where('conversationId').equals(conversationId).last();
     const sequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
 
     Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence });
     await db.messages.put({ id, conversationId, content, role, timestamp, sequence });
+  }
+
+  // Fix sequences for all messages in a conversation
+  static async fixMessageSequences(conversationId: string): Promise<void> {
+    Logger.log('Fixing message sequences for conversation', { conversationId });
+    const messages = await db.messages.where('conversationId').equals(conversationId).sortBy('timestamp');
+
+    let sequence = 1;
+    for (const message of messages) {
+      message.sequence = sequence;
+      await db.messages.put(message);
+      sequence++;
+    }
+
+    Logger.log('Fixed message sequences', { conversationId, messages });
   }
 
   // Retrieve messages for a specific conversation
