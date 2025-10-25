@@ -1,4 +1,6 @@
 import { BackendChatRequest, BackendChatResponse, BackendContextMessage, Message } from '@/types/chat';
+import db from './chatDatabase';
+import { Logger } from '@/utils/logger';
 
 const API_BASE_URL = 'https://3b1b6575caab.ngrok-free.app';
 
@@ -84,6 +86,10 @@ export class ChatService {
     rules: string,
     imageData?: string
   ): Promise<string> {
+    Logger.log('Sending message', { currentMessage });
+    const context = await this.generateContext(messages[0]?.conversationId || '', rules);
+    Logger.log('Context being sent to AI', { context });
+
     const config = getAuthConfig();
     
     if (config.backend === 'openrouter') {
@@ -254,5 +260,71 @@ export class ChatService {
   static extractUserName(email: string): string {
     // Extract the first part before @ (e.g., souravsunju from souravsunju@gmail.com)
     return email.split('@')[0];
+  }
+
+  // Save a conversation to the Dexie database
+  static async saveConversation(id: string, title: string, createdAt: number, updatedAt: number): Promise<void> {
+    Logger.log('Saving conversation', { id, title, createdAt, updatedAt });
+    await db.conversations.put({ id, title, createdAt, updatedAt });
+  }
+
+  // Retrieve all conversations from the Dexie database
+  static async getConversations(): Promise<{ id: string; title: string; createdAt: number; updatedAt: number }[]> {
+    Logger.log('Retrieving all conversations');
+    return await db.conversations.toArray();
+  }
+
+  // Save a message to the Dexie database with a sequence number
+  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number): Promise<void> {
+    const lastMessage = await db.messages.where('conversationId').equals(conversationId).last();
+    const sequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
+
+    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence });
+    await db.messages.put({ id, conversationId, content, role, timestamp, sequence });
+  }
+
+  // Retrieve messages for a specific conversation
+  static async getMessagesByConversation(conversationId: string): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number }[]> {
+    Logger.log('Retrieving messages for conversation', { conversationId });
+    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
+
+    // Sort messages by sequence in ascending order
+    messages.sort((a, b) => a.sequence - b.sequence);
+    Logger.log('Sorted messages by sequence', { messages });
+
+    return messages;
+  }
+
+  // Generate context for the AI model
+  static async generateContext(conversationId: string, roleplayRules: string): Promise<string> {
+    Logger.log('Generating context for conversation', { conversationId });
+    const messages = await this.getMessagesByConversation(conversationId);
+
+    // Sort messages by sequence in ascending order
+    messages.sort((a, b) => a.sequence - b.sequence);
+
+    // Build context incrementally, starting with roleplay rules
+    let context = `Roleplay Rules:\n${roleplayRules}\n`;
+
+    for (const msg of messages) {
+      const messageContent = `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`;
+      if (context.length + messageContent.length > 1000) break;
+      context += messageContent + '\n';
+    }
+
+    Logger.log('Generated context for AI', { context });
+    return context.trim();
+  }
+
+  // Clear all messages from the Dexie database
+  static async clearMessages(): Promise<void> {
+    Logger.log('Clearing all messages from the database');
+    await db.messages.clear();
+  }
+
+  // Clear all conversations from the Dexie database
+  static async clearConversations(): Promise<void> {
+    Logger.log('Clearing all conversations from the database');
+    await db.conversations.clear();
   }
 }

@@ -9,6 +9,9 @@ import { SplineBackground } from "@/components/ui/SplineBackground";
 import { MoreHorizontal, Menu } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useSiriToast } from "@/hooks/useSiriToast";
+import { ChatService } from '@/services/chatService';
+import { Logger } from '@/utils/logger';
+import { clearThreads } from '@/hooks/useChat';
 
 export const ChatLayout = () => {
   const {
@@ -47,10 +50,19 @@ export const ChatLayout = () => {
           onNewChat={createNewThread}
           onSelectThread={selectThread}
           onDeleteThread={deleteThread}
-          onClearAll={() => {
+          onClearAll={async () => {
             if (window.confirm('Clear all chat history and logout? This cannot be undone.')) {
+              Logger.log('Clearing all chat history and data');
+              await ChatService.clearMessages();
+              await ChatService.getConversations().then(async (conversations) => {
+                for (const conversation of conversations) {
+                  await ChatService.saveConversation(conversation.id, conversation.title, 0, 0); // Clear conversations
+                }
+              });
+              await clearThreads(); // Clear threads
               localStorage.clear();
               sessionStorage.clear();
+              Logger.log('All data cleared from IndexedDB, localStorage, and sessionStorage');
               window.location.reload();
             }
           }}

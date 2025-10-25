@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ChatThread, Message, ThreadConfig, NewThreadPrompt } from '@/types/chat';
 import { ChatService } from '@/services/chatService';
 import { useAuth } from '@/hooks/useAuth';
+import { Logger } from '@/utils/logger';
 
 const STORAGE_KEY = 'chat-threads';
 
@@ -10,44 +11,103 @@ const generateDisplayId = (index: number): string => {
   return `SAND-${index + 1}`;
 };
 
-const loadThreads = (): ChatThread[] => {
+const loadThreads = async (): Promise<ChatThread[]> => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return parsed.map((thread: any) => ({
-        ...thread,
-        createdAt: new Date(thread.createdAt),
-        updatedAt: new Date(thread.updatedAt),
-        messages: thread.messages?.map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        })) || []
-      }));
+    Logger.log('Loading threads');
+    const conversations = await ChatService.getConversations();
+    const threads: ChatThread[] = [];
+
+    for (const conversation of conversations) {
+      const messages = await ChatService.getMessagesByConversation(conversation.id);
+      Logger.log('Loaded messages for conversation', { conversationId: conversation.id, messages });
+      threads.push({
+        id: conversation.id,
+        title: conversation.title,
+        displayId: generateDisplayId(threads.length),
+        conversations: [],
+        messages: messages.map((msg) => ({
+          id: msg.id,
+          role: msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user',
+          content: msg.content,
+          timestamp: new Date(msg.timestamp),
+          sequence: msg.sequence, // Ensure sequence is included
+        })),
+        createdAt: new Date(conversation.createdAt),
+        updatedAt: new Date(conversation.updatedAt),
+        config: {
+          botName: 'Bot',
+          rules: '',
+          userName: 'User',
+        },
+      });
     }
+
+    Logger.log('Loaded threads', { threads });
+    return threads;
   } catch (error) {
-    console.error('Error loading threads:', error);
+    Logger.error('Error loading threads', error);
+    return [];
   }
-  return [];
 };
 
-const saveThreads = (threads: ChatThread[]) => {
+const saveThreads = async (threads: ChatThread[]): Promise<void> => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+    Logger.log('Saving threads', { threads });
+    for (const thread of threads) {
+      await ChatService.saveConversation(
+        thread.id,
+        thread.title,
+        thread.createdAt.getTime(),
+        thread.updatedAt.getTime()
+      );
+
+      for (let i = 0; i < thread.messages.length; i++) {
+        const message = thread.messages[i];
+        await ChatService.saveMessage(
+          thread.id,
+          message.id,
+          message.content,
+          message.role,
+          message.timestamp.getTime()
+        );
+      }
+    }
+    Logger.log('Threads saved successfully');
   } catch (error) {
-    console.error('Error saving threads:', error);
+    Logger.error('Error saving threads', error);
+  }
+};
+
+const clearThreads = async (): Promise<void> => {
+  try {
+    Logger.log('Clearing all threads and associated data');
+    const conversations = await ChatService.getConversations();
+    for (const conversation of conversations) {
+      await ChatService.clearMessages(); // Clear all messages
+    }
+    await ChatService.clearConversations(); // Clear all conversations using ChatService
+    Logger.log('All threads and associated data cleared');
+  } catch (error) {
+    Logger.error('Error clearing threads and associated data', error);
   }
 };
 
 export const useChat = () => {
   const { authData } = useAuth();
-  const [threads, setThreads] = useState<ChatThread[]>(() => loadThreads());
+  const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   
   // Track active requests to handle concurrent responses
   const activeRequests = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    (async () => {
+      const loadedThreads = await loadThreads();
+      setThreads(loadedThreads);
+    })();
+  }, []);
 
   useEffect(() => {
     saveThreads(threads);
@@ -164,6 +224,11 @@ export const useChat = () => {
     }
 
     try {
+      // Generate context for the message
+      const roleplayRules = currentThread.config.rules;
+      const context = await ChatService.generateContext(currentThreadId, roleplayRules);
+      Logger.log('Sending message with context', { content, context });
+
       // Call the actual backend service with messages excluding loading messages
       const response = await ChatService.sendMessage(
         currentThread.messages.filter(msg => !msg.isLoading), // Don't send loading messages
@@ -262,3 +327,5 @@ export const useChat = () => {
     deleteThread
   };
 };
+
+export { clearThreads };

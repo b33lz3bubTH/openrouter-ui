@@ -80,6 +80,7 @@ export function AppSidebar({
                       isActive={activeThreadId === thread.id}
                       className={cn(
                         "group relative w-full",
+                        "p-2 hover:p-2",
                         activeThreadId === thread.id && "bg-accent"
                       )}
                       tooltip={!open ? thread.title : undefined}
