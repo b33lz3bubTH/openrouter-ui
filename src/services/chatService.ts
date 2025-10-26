@@ -316,6 +316,49 @@ export class ChatService {
     return messages;
   }
 
+  // Get recent messages (reverse pagination - newest first)
+  static async getRecentMessages(conversationId: string, limit: number = 11): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }[]> {
+    Logger.log('Retrieving recent messages', { conversationId, limit });
+    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
+    
+    // Sort by sequence descending (newest first)
+    messages.sort((a, b) => b.sequence - a.sequence);
+    
+    // Take the most recent messages
+    const recentMessages = messages.slice(0, limit);
+    
+    // Sort back to ascending order for display (oldest first)
+    recentMessages.sort((a, b) => a.sequence - b.sequence);
+    
+    Logger.log('Retrieved recent messages', { recentMessages });
+    return recentMessages;
+  }
+
+  // Get older messages (for pagination when scrolling up)
+  static async getOlderMessages(conversationId: string, beforeSequence: number, limit: number = 10): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }[]> {
+    Logger.log('Retrieving older messages', { conversationId, beforeSequence, limit });
+    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
+    
+    // Sort by sequence descending (newest first)
+    messages.sort((a, b) => b.sequence - a.sequence);
+    
+    // Find messages older than beforeSequence
+    const olderMessages = messages.filter(msg => msg.sequence < beforeSequence).slice(0, limit);
+    
+    // Sort back to ascending order for display (oldest first)
+    olderMessages.sort((a, b) => a.sequence - b.sequence);
+    
+    Logger.log('Retrieved older messages', { olderMessages });
+    return olderMessages;
+  }
+
+  // Get total message count for a conversation
+  static async getMessageCount(conversationId: string): Promise<number> {
+    const count = await db.messages.where('conversationId').equals(conversationId).count();
+    Logger.log('Message count for conversation', { conversationId, count });
+    return count;
+  }
+
   // Generate context for the AI model
   static async generateContext(conversationId: string, roleplayRules: string): Promise<string> {
     Logger.log('Generating context for conversation', { conversationId });
