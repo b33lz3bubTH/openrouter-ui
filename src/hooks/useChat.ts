@@ -323,10 +323,29 @@ export const useChat = () => {
     // This allows for better UX - responses will still arrive
   }, []);
 
-  const deleteThread = useCallback((threadId: string) => {
-    setThreads(prev => prev.filter(thread => thread.id !== threadId));
-    if (activeThreadId === threadId) {
-      setActiveThreadId(null);
+  const deleteThread = useCallback(async (threadId: string) => {
+    try {
+      Logger.log('Deleting thread', { threadId });
+      
+      // Delete from database first
+      await ChatService.deleteThread(threadId);
+      
+      // Then remove from UI state
+      setThreads(prev => prev.filter(thread => thread.id !== threadId));
+      
+      // Clear active thread if it was the deleted one
+      if (activeThreadId === threadId) {
+        setActiveThreadId(null);
+      }
+      
+      Logger.log('Successfully deleted thread from UI and database', { threadId });
+    } catch (error) {
+      Logger.error('Error deleting thread', { threadId, error });
+      // Still remove from UI even if database deletion fails
+      setThreads(prev => prev.filter(thread => thread.id !== threadId));
+      if (activeThreadId === threadId) {
+        setActiveThreadId(null);
+      }
     }
   }, [activeThreadId]);
 

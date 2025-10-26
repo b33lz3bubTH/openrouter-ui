@@ -24,7 +24,7 @@ interface AppSidebarProps {
   activeThreadId: string | null;
   onNewChat: () => void;
   onSelectThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
+  onDeleteThread: (threadId: string) => Promise<void>;
   onClearAll: () => void;
 }
 
@@ -103,9 +103,13 @@ export function AppSidebar({
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0"
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.stopPropagation();
-                                onDeleteThread(thread.id);
+                                try {
+                                  await onDeleteThread(thread.id);
+                                } catch (error) {
+                                  console.error('Error deleting thread:', error);
+                                }
                               }}
                             >
                               <div><Trash2 className="h-3 w-3" /></div>

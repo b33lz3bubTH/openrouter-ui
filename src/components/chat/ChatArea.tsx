@@ -25,13 +25,85 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (messagesEndRef.current && scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+    const scrollToBottom = () => {
+      const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
       if (scrollContainer) {
+        console.log('[ChatArea] scrollToBottom: height', scrollContainer.scrollHeight, 'top(before)', scrollContainer.scrollTop);
+        
+        // Force scroll to bottom by setting scrollTop to a very large value
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        
+        // If that doesn't work, try setting scrollHeight directly
+        if (scrollContainer.scrollTop === 0) {
+          scrollContainer.setAttribute('scrollHeight', scrollContainer.scrollHeight.toString());
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }
+        
+        console.log('[ChatArea] scrollToBottom: top(after)', scrollContainer.scrollTop);
       }
+    };
+
+    // Use multiple attempts to ensure scrolling works
+    if (sortedMessages.length > 0) {
+      // Immediate attempt
+      scrollToBottom();
+      
+      // Delayed attempt after content renders
+      setTimeout(scrollToBottom, 100);
+      
+      // Final attempt after all animations
+      setTimeout(scrollToBottom, 300);
     }
   }, [sortedMessages]);
+
+  // Scroll to bottom on initial load
+  useEffect(() => {
+    if (activeThread && sortedMessages.length > 0) {
+      const scrollToBottom = () => {
+        const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+        if (scrollContainer) {
+          console.log('[ChatArea] Initial scroll: height', scrollContainer.scrollHeight);
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+          
+          // Force scroll if needed
+          if (scrollContainer.scrollTop === 0) {
+            scrollContainer.setAttribute('scrollHeight', scrollContainer.scrollHeight.toString());
+            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+          }
+        }
+      };
+
+      // Multiple attempts for initial load
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 200);
+      setTimeout(scrollToBottom, 500);
+    }
+  }, [activeThread?.id]);
+
+  // MutationObserver to detect DOM changes and force scroll
+  useEffect(() => {
+    const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    if (!scrollContainer) return;
+
+    const observer = new MutationObserver(() => {
+      console.log('[ChatArea] DOM changed, forcing scroll');
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      
+      // Force scroll if needed
+      if (scrollContainer.scrollTop === 0) {
+        scrollContainer.setAttribute('scrollHeight', scrollContainer.scrollHeight.toString());
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
+    });
+
+    observer.observe(scrollContainer, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    return () => observer.disconnect();
+  }, [activeThread?.id]);
 
   if (!activeThread) {
     return (
@@ -141,6 +213,27 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
         
         {/* Invisible element to scroll to */}
         <div ref={messagesEndRef} />
+        
+        {/* Force scroll to bottom using scrollIntoView as fallback */}
+        {sortedMessages.length > 0 && (
+          <div 
+            style={{ 
+              position: 'absolute', 
+              bottom: 0, 
+              left: 0, 
+              right: 0, 
+              height: '1px',
+              pointerEvents: 'none'
+            }}
+            ref={(el) => {
+              if (el && sortedMessages.length > 0) {
+                setTimeout(() => {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }, 100);
+              }
+            }}
+          />
+        )}
       </div>
     </ScrollArea>
   );

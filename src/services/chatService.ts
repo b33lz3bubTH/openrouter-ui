@@ -386,4 +386,25 @@ export class ChatService {
     const config = await db.threadConfigs.get(threadId);
     return config || null;
   }
+
+  // Delete a specific thread and all its associated data
+  static async deleteThread(threadId: string): Promise<void> {
+    Logger.log('Deleting thread and all associated data', { threadId });
+    
+    try {
+      // Delete all messages for this conversation
+      await db.messages.where('conversationId').equals(threadId).delete();
+      
+      // Delete the conversation
+      await db.conversations.where('id').equals(threadId).delete();
+      
+      // Delete the thread configuration
+      await db.threadConfigs.where('id').equals(threadId).delete();
+      
+      Logger.log('Successfully deleted thread and all associated data', { threadId });
+    } catch (error) {
+      Logger.error('Error deleting thread', { threadId, error });
+      throw error;
+    }
+  }
 }
