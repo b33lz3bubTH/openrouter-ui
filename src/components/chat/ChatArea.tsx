@@ -20,6 +20,9 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     isLoading 
   });
 
+  // Sort messages by sequence before rendering
+  const sortedMessages = [...(activeThread?.messages || [])].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current && scrollAreaRef.current) {
@@ -28,7 +31,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }
     }
-  }, [activeThread?.messages]);
+  }, [sortedMessages]);
 
   if (!activeThread) {
     return (
@@ -45,7 +48,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     );
   }
 
-  if (activeThread.messages.length === 0) {
+  if (sortedMessages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
         <div className="text-center max-w-md my-5">
@@ -60,10 +63,11 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     );
   }
 
+
   return (
     <ScrollArea ref={scrollAreaRef} className="flex-1 bg-transparent">
       <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
-        {activeThread.messages.map((message) => {
+        {sortedMessages.map((message) => {
           console.log('📝 Rendering message:', message);
           return (
             <div key={message.id} className="space-y-4">

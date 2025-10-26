@@ -20,7 +20,8 @@ const loadThreads = async (): Promise<ChatThread[]> => {
     for (const conversation of conversations) {
       await ChatService.fixMessageSequences(conversation.id); // Fix sequences before loading messages
       const messages = await ChatService.getMessagesByConversation(conversation.id);
-      Logger.log('Loaded messages for conversation', { conversationId: conversation.id, messages });
+      const config = await ChatService.getThreadConfig(conversation.id);
+      Logger.log('Loaded messages for conversation', { conversationId: conversation.id, messages, config });
       threads.push({
         id: conversation.id,
         title: conversation.title,
@@ -32,10 +33,10 @@ const loadThreads = async (): Promise<ChatThread[]> => {
           content: msg.content,
           timestamp: new Date(msg.timestamp),
           sequence: msg.sequence, // Ensure sequence is included
-        })),
+        })).sort((a, b) => (a.sequence || 0) - (b.sequence || 0)), // Sort by sequence
         createdAt: new Date(conversation.createdAt),
         updatedAt: new Date(conversation.updatedAt),
-        config: {
+        config: config || {
           botName: 'Bot',
           rules: '',
           userName: 'User',
@@ -62,6 +63,16 @@ const saveThreads = async (threads: ChatThread[]): Promise<void> => {
         thread.updatedAt.getTime()
       );
 
+      // Save thread config if it exists
+      if (thread.config) {
+        await ChatService.saveThreadConfig(
+          thread.id,
+          thread.config.botName,
+          thread.config.rules,
+          thread.config.userName
+        );
+      }
+
       for (let i = 0; i < thread.messages.length; i++) {
         const message = thread.messages[i];
         await ChatService.saveMessage(
@@ -69,7 +80,8 @@ const saveThreads = async (threads: ChatThread[]): Promise<void> => {
           message.id,
           message.content,
           message.role,
-          message.timestamp.getTime()
+          message.timestamp.getTime(),
+          message.sequence // Pass the sequence number to preserve ordering
         );
       }
     }
@@ -182,12 +194,17 @@ export const useChat = () => {
     const requestId = uuidv4();
     activeRequests.current.add(requestId);
 
+    // Calculate next sequence number
+    const lastMessage = currentThread.messages[currentThread.messages.length - 1];
+    const nextSequence = lastMessage?.sequence ? lastMessage.sequence + 1 : 1;
+
     // Add user message immediately
     const userMessage: Message = {
       id: uuidv4(),
       content: content.trim(),
       role: 'user',
-      timestamp: new Date()
+      timestamp: new Date(),
+      sequence: nextSequence
     };
 
     // Add loading assistant message
@@ -196,6 +213,7 @@ export const useChat = () => {
       content: '',
       role: 'assistant',
       timestamp: new Date(),
+      sequence: nextSequence + 1,
       isLoading: true
     };
 
@@ -252,7 +270,7 @@ export const useChat = () => {
                 ...thread,
                 messages: thread.messages.map(msg => 
                   msg.id === loadingMessage.id 
-                    ? { ...msg, content: response, isLoading: false }
+                    ? { ...msg, content: response, isLoading: false, sequence: msg.sequence }
                     : msg
                 ),
                 updatedAt: new Date()
@@ -305,6 +323,14 @@ export const useChat = () => {
     }
   }, [activeThreadId]);
 
+  const updateThreadConfig = useCallback((threadId: string, config: ThreadConfig) => {
+    setThreads(prev => prev.map(thread => 
+      thread.id === threadId 
+        ? { ...thread, config }
+        : thread
+    ));
+  }, []);
+
   const activeThread = threads.find(thread => thread.id === activeThreadId);
 
   console.log('📝 Current state:', { 
@@ -325,7 +351,8 @@ export const useChat = () => {
     cancelNewChatPrompt,
     sendMessage,
     selectThread,
-    deleteThread
+    deleteThread,
+    updateThreadConfig
   };
 };
 

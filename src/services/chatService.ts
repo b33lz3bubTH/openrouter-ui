@@ -274,24 +274,30 @@ export class ChatService {
     return await db.conversations.toArray();
   }
 
-  // Save a message to the Dexie database with a unique incremental sequence number
-  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number): Promise<void> {
-    const lastMessage = await db.messages.where('conversationId').equals(conversationId).last();
-    const sequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
+  // Save a message to the Dexie database with a specific sequence number
+  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number): Promise<void> {
+    // If sequence is provided, use it; otherwise calculate it
+    let finalSequence = sequence;
+    if (finalSequence === undefined) {
+      const lastMessage = await db.messages.where('conversationId').equals(conversationId).last();
+      finalSequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
+    }
 
-    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence });
-    await db.messages.put({ id, conversationId, content, role, timestamp, sequence });
+    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence });
+    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence });
   }
 
   // Fix sequences for all messages in a conversation
   static async fixMessageSequences(conversationId: string): Promise<void> {
     Logger.log('Fixing message sequences for conversation', { conversationId });
-    const messages = await db.messages.where('conversationId').equals(conversationId).sortBy('timestamp');
+    const messages = await db.messages.where('conversationId').equals(conversationId).sortBy('sequence');
 
     let sequence = 1;
     for (const message of messages) {
-      message.sequence = sequence;
-      await db.messages.put(message);
+      if (message.sequence !== sequence) {
+        message.sequence = sequence;
+        await db.messages.put(message);
+      }
       sequence++;
     }
 
@@ -318,13 +324,37 @@ export class ChatService {
     // Sort messages by sequence in ascending order
     messages.sort((a, b) => a.sequence - b.sequence);
 
-    // Build context incrementally, starting with roleplay rules
-    let context = `Roleplay Rules:\n${roleplayRules}\n`;
+    // Take recent messages (last 6 messages for context)
+    const recentMessages = messages.slice(-6);
+    
+    let context = '';
+    let userMessages: string[] = [];
+    let assistantMessages: string[] = [];
 
-    for (const msg of messages) {
-      const messageContent = `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`;
-      if (context.length + messageContent.length > 1000) break;
-      context += messageContent + '\n';
+    // Separate user and assistant messages
+    for (const msg of recentMessages) {
+      if (msg.role === 'user') {
+        userMessages.push(msg.content);
+      } else {
+        assistantMessages.push(msg.content);
+      }
+    }
+
+    // Concatenate user messages
+    if (userMessages.length > 0) {
+      context += `User recent messages: ${userMessages.join(' > ')}\n`;
+    }
+
+    // Concatenate assistant messages (truncated)
+    if (assistantMessages.length > 0) {
+      const assistantText = assistantMessages.join(' ');
+      const truncatedAssistant = assistantText.length > 300 ? assistantText.substring(0, 300) + '...' : assistantText;
+      context += `Assistant responses: ${truncatedAssistant}\n`;
+    }
+
+    // Limit total context to 1200 characters
+    if (context.length > 1200) {
+      context = context.substring(0, 1200) + '...';
     }
 
     Logger.log('Generated context for AI', { context });
@@ -341,5 +371,18 @@ export class ChatService {
   static async clearConversations(): Promise<void> {
     Logger.log('Clearing all conversations from the database');
     await db.conversations.clear();
+  }
+
+  // Save thread configuration
+  static async saveThreadConfig(threadId: string, botName: string, rules: string, userName: string): Promise<void> {
+    Logger.log('Saving thread config', { threadId, botName, rules, userName });
+    await db.threadConfigs.put({ id: threadId, botName, rules, userName });
+  }
+
+  // Get thread configuration
+  static async getThreadConfig(threadId: string): Promise<{ botName: string; rules: string; userName: string } | null> {
+    Logger.log('Getting thread config', { threadId });
+    const config = await db.threadConfigs.get(threadId);
+    return config || null;
   }
 }

@@ -6,12 +6,16 @@ import { NewChatPrompt } from "@/components/NewChatPrompt";
 import { useChat } from "@/hooks/useChat";
 import { Button } from "@/components/ui/button";
 import { SplineBackground } from "@/components/ui/SplineBackground";
-import { MoreHorizontal, Menu } from "lucide-react";
+import { MoreHorizontal, Menu, Info, Copy, Edit } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useSiriToast } from "@/hooks/useSiriToast";
 import { ChatService } from '@/services/chatService';
 import { Logger } from '@/utils/logger';
 import { clearThreads } from '@/hooks/useChat';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { useState } from "react";
 
 export const ChatLayout = () => {
   const {
@@ -25,11 +29,52 @@ export const ChatLayout = () => {
     cancelNewChatPrompt,
     sendMessage,
     selectThread,
-    deleteThread
+    deleteThread,
+    updateThreadConfig
   } = useChat();
+
+  const [showRulesDialog, setShowRulesDialog] = useState(false);
+  const [isEditingRules, setIsEditingRules] = useState(false);
+  const [editedRules, setEditedRules] = useState('');
 
   const handleSendMessage = (message: string, image?: string) => {
     sendMessage(message, activeThreadId || undefined, image);
+  };
+
+  const handleCopyRules = () => {
+    if (activeThread?.config?.rules) {
+      navigator.clipboard.writeText(activeThread.config.rules);
+      toast({
+        title: "Copied!",
+        description: "Roleplay rules copied to clipboard",
+      });
+    }
+  };
+
+  const handleEditRules = () => {
+    if (activeThread?.config?.rules) {
+      setEditedRules(activeThread.config.rules);
+      setIsEditingRules(true);
+    }
+  };
+
+  const handleSaveRules = () => {
+    if (activeThread && editedRules.trim()) {
+      updateThreadConfig(activeThread.id, {
+        ...activeThread.config!,
+        rules: editedRules.trim()
+      });
+      setIsEditingRules(false);
+      toast({
+        title: "Saved!",
+        description: "Roleplay rules updated",
+      });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingRules(false);
+    setEditedRules('');
   };
 
   const { theme } = useTheme();
@@ -91,9 +136,28 @@ export const ChatLayout = () => {
               )}
             </div>
             
-            <Button variant="ghost" size="icon" className="h-9 w-9 flex-shrink-0">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center space-x-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 flex-shrink-0">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {activeThread?.config?.rules ? (
+                    <DropdownMenuItem onClick={() => setShowRulesDialog(true)}>
+                      <Info className="h-4 w-4 mr-2" />
+                      View Rules
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem disabled>
+                      <Info className="h-4 w-4 mr-2" />
+                      No Rules Set
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </header>
 
           {/* Chat Content - Scrollable */}
@@ -115,6 +179,53 @@ export const ChatLayout = () => {
           </div>
         </div>
       </div>
+
+      {/* Rules Dialog */}
+      {activeThread?.config?.rules && (
+        <Dialog open={showRulesDialog} onOpenChange={setShowRulesDialog}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center justify-between">
+                Roleplay Rules
+                <div className="flex space-x-2">
+                  <Button variant="ghost" size="sm" onClick={handleCopyRules}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleEditRules}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
+                </div>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="mt-4">
+              {isEditingRules ? (
+                <div className="space-y-4">
+                  <Textarea
+                    value={editedRules}
+                    onChange={(e) => setEditedRules(e.target.value)}
+                    className="min-h-[200px]"
+                    placeholder="Enter roleplay rules..."
+                  />
+                  <div className="flex justify-end space-x-2">
+                    <Button variant="outline" onClick={handleCancelEdit}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSaveRules}>
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <pre className="whitespace-pre-wrap text-sm text-muted-foreground bg-muted p-4 rounded-lg">
+                  {activeThread.config.rules}
+                </pre>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* New Chat Prompt Dialog */}
       {showNewChatPrompt && (
