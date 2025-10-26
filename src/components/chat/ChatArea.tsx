@@ -99,10 +99,10 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
 
       if (filteredOlderMessages.length > 0) {
         setDisplayedMessages(prev => [...filteredOlderMessages, ...prev]);
-        setHasMoreMessages(filteredOlderMessages.length === 10);
+        setHasMoreMessages(filteredOlderMessages.length > 0);
         console.log('📝 Loaded more messages:', { 
           loaded: filteredOlderMessages.length,
-          hasMore: filteredOlderMessages.length === 10
+          hasMore: filteredOlderMessages.length > 0
         });
       } else {
         setHasMoreMessages(false);
@@ -310,7 +310,6 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
         )}
 
         {/* Load more messages button */}
-        {console.log('📝 Button visibility check:', { hasMoreMessages, isLoadingMore, shouldShow: hasMoreMessages && !isLoadingMore })}
         {hasMoreMessages && !isLoadingMore && (
           <div className="text-center py-2">
             <Button
