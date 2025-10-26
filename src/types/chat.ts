@@ -6,6 +6,7 @@ export interface Message {
   sequence?: number;
   isLoading?: boolean;
   hasImage?: boolean;
+  isDelivered?: boolean;
 }
 
 export interface Conversation {

@@ -275,7 +275,7 @@ export class ChatService {
   }
 
   // Save a message to the Dexie database with a specific sequence number
-  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number): Promise<void> {
+  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number, isDelivered?: boolean): Promise<void> {
     // If sequence is provided, use it; otherwise calculate it
     let finalSequence = sequence;
     if (finalSequence === undefined) {
@@ -283,8 +283,8 @@ export class ChatService {
       finalSequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
     }
 
-    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence });
-    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence });
+    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence, isDelivered });
+    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence, isDelivered });
   }
 
   // Fix sequences for all messages in a conversation
@@ -305,7 +305,7 @@ export class ChatService {
   }
 
   // Retrieve messages for a specific conversation
-  static async getMessagesByConversation(conversationId: string): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number }[]> {
+  static async getMessagesByConversation(conversationId: string): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }[]> {
     Logger.log('Retrieving messages for conversation', { conversationId });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
 
@@ -324,8 +324,9 @@ export class ChatService {
     // Sort messages by sequence in ascending order
     messages.sort((a, b) => a.sequence - b.sequence);
 
-    // Take recent messages (last 6 messages for context)
-    const recentMessages = messages.slice(-6);
+    // Filter out undelivered messages and take recent messages (last 6 messages for context)
+    const deliveredMessages = messages.filter(msg => msg.isDelivered !== false);
+    const recentMessages = deliveredMessages.slice(-6);
     
     let context = '';
     let userMessages: string[] = [];

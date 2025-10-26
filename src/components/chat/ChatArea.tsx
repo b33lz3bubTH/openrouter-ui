@@ -1,7 +1,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SplineLogo } from '@/components/ui/SplineLogo';
 import { ChatThread } from '@/types/chat';
-import { User, Bot, Loader2 } from 'lucide-react';
+import { User, Bot, Loader2, AlertCircle } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 interface ChatAreaProps {
@@ -75,13 +75,19 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                 // User Message
                 <div className="flex justify-end">
                   <div className="flex items-start space-x-3 max-w-[80%]">
-                    <div className="bg-muted rounded-2xl px-4 py-3">
-                      <p className="text-sm leading-relaxed text-muted-foreground">
+                    <div className={`rounded-2xl px-4 py-3 ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
+                      <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
                         {message.content}
                       </p>
                       {message.hasImage && (
                         <div className="mt-2 text-xs text-muted-foreground/70">
                           📎 Image attached
+                        </div>
+                      )}
+                      {message.isDelivered === false && (
+                        <div className="mt-2 flex items-center text-xs text-destructive">
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          Message not delivered
                         </div>
                       )}
                     </div>
@@ -103,8 +109,12 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                     <div className="bg-card border rounded-2xl px-4 py-3 min-w-[100px]">
                       {message.isLoading ? (
                         <div className="flex items-center space-x-2 text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span className="text-sm">Processing your request...</span>
+                          <div className="flex space-x-1">
+                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                          </div>
+                          <span className="text-sm">{activeThread?.config?.botName} is typing...</span>
                         </div>
                       ) : (
                         <p className="text-card-foreground text-sm leading-relaxed">
@@ -119,7 +129,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
           );
         })}
         
-        {/* Show global loading indicator when there are active requests */}
+        {/* Show global loading indicator when there are active requests
         {isLoading && (
           <div className="text-center py-4">
             <div className="inline-flex items-center space-x-2 text-muted-foreground text-sm">
@@ -127,7 +137,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
               <span>Sand is processing multiple requests...</span>
             </div>
           </div>
-        )}
+        )} */}
         
         {/* Invisible element to scroll to */}
         <div ref={messagesEndRef} />

@@ -33,6 +33,7 @@ const loadThreads = async (): Promise<ChatThread[]> => {
           content: msg.content,
           timestamp: new Date(msg.timestamp),
           sequence: msg.sequence, // Ensure sequence is included
+          isDelivered: msg.isDelivered !== false, // Default to true if not specified
         })).sort((a, b) => (a.sequence || 0) - (b.sequence || 0)), // Sort by sequence
         createdAt: new Date(conversation.createdAt),
         updatedAt: new Date(conversation.updatedAt),
@@ -81,7 +82,8 @@ const saveThreads = async (threads: ChatThread[]): Promise<void> => {
           message.content,
           message.role,
           message.timestamp.getTime(),
-          message.sequence // Pass the sequence number to preserve ordering
+          message.sequence, // Pass the sequence number to preserve ordering
+          message.isDelivered // Pass the delivery status
         );
       }
     }
@@ -204,7 +206,8 @@ export const useChat = () => {
       content: content.trim(),
       role: 'user',
       timestamp: new Date(),
-      sequence: nextSequence
+      sequence: nextSequence,
+      isDelivered: true // User messages are delivered immediately
     };
 
     // Add loading assistant message
@@ -289,12 +292,16 @@ export const useChat = () => {
       
       // Only handle error if request is still active
       if (activeRequests.current.has(requestId)) {
-        // Remove loading message on error
+        // Mark user message as undelivered and remove loading message on error
         setThreads(prev => prev.map(thread => 
           thread.id === currentThreadId 
             ? {
                 ...thread,
-                messages: thread.messages.filter(msg => msg.id !== loadingMessage.id)
+                messages: thread.messages.map(msg => 
+                  msg.id === userMessage.id 
+                    ? { ...msg, isDelivered: false }
+                    : msg
+                ).filter(msg => msg.id !== loadingMessage.id)
               }
             : thread
         ));

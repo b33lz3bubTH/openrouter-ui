@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 // Define the database schema
 class ChatDatabase extends Dexie {
   conversations: Dexie.Table<{ id: string; title: string; createdAt: number; updatedAt: number }, string>;
-  messages: Dexie.Table<{ id: string; conversationId: string; content: string; role: string; timestamp: number; sequence: number }, string>;
+  messages: Dexie.Table<{ id: string; conversationId: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }, string>;
   threadConfigs: Dexie.Table<{ id: string; botName: string; rules: string; userName: string }, string>;
 
   constructor() {

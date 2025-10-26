@@ -80,16 +80,18 @@ export function AppSidebar({
                       isActive={activeThreadId === thread.id}
                       className={cn(
                         "group relative w-full",
-                        "p-2 hover:p-2",
+                        "px-3 py-2 hover:px-3 hover:py-2",
+                        "rounded-md transition-all duration-200",
                         activeThreadId === thread.id && "bg-accent"
                       )}
+                      style={{padding: "10%"}}
                       tooltip={!open ? thread.title : undefined}
                     >
                       <div className="flex items-center w-full">
                         <MessageSquare className="h-4 w-4 flex-shrink-0" />
                         {open && (
                           <>
-                            <div className="flex-1 min-w-0 text-left">
+                            <div className="flex-1 min-w-0 text-left ml-2">
                               <div className="truncate text-sm font-medium">
                                 {thread.title}
                               </div>
