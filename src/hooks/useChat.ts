@@ -27,14 +27,17 @@ const loadThreads = async (): Promise<ChatThread[]> => {
         title: conversation.title,
         displayId: generateDisplayId(threads.length),
         conversations: [],
-        messages: messages.map((msg) => ({
-          id: msg.id,
-          role: msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user',
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          sequence: msg.sequence, // Ensure sequence is included
-          isDelivered: msg.isDelivered !== false, // Default to true if not specified
-        })).sort((a, b) => (a.sequence || 0) - (b.sequence || 0)), // Sort by sequence
+        messages: messages
+          .filter((msg) => msg.content.trim() !== '') // Filter out empty messages (failed responses)
+          .map((msg) => ({
+            id: msg.id,
+            role: msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user',
+            content: msg.content,
+            timestamp: new Date(msg.timestamp),
+            sequence: msg.sequence, // Ensure sequence is included
+            isDelivered: msg.isDelivered !== false, // Default to true if not specified
+          }))
+          .sort((a, b) => (a.sequence || 0) - (b.sequence || 0)), // Sort by sequence
         createdAt: new Date(conversation.createdAt),
         updatedAt: new Date(conversation.updatedAt),
         config: config || {
@@ -286,6 +289,40 @@ export const useChat = () => {
           console.log('📝 All threads after response update:', updated);
           return updated;
         });
+
+        // Save both user message and assistant response to database
+        try {
+          // Save user message (delivered)
+          await ChatService.saveMessage(
+            currentThreadId,
+            userMessage.id,
+            userMessage.content,
+            userMessage.role,
+            userMessage.timestamp.getTime(),
+            userMessage.sequence,
+            true // Mark as delivered
+          );
+
+          // Only save assistant response if it has content
+          if (response && response.trim() !== '') {
+            await ChatService.saveMessage(
+              currentThreadId,
+              loadingMessage.id,
+              response,
+              loadingMessage.role,
+              loadingMessage.timestamp.getTime(),
+              loadingMessage.sequence,
+              true // Mark as delivered
+            );
+          }
+
+          Logger.log('Saved user message and assistant response to database', { 
+            userMessage, 
+            assistantMessage: response && response.trim() !== '' ? { id: loadingMessage.id, content: response, role: loadingMessage.role } : null
+          });
+        } catch (saveError) {
+          Logger.error('Error saving messages to database', { userMessage, response, saveError });
+        }
       }
     } catch (error) {
       console.error('❌ Error sending message:', error);
@@ -305,6 +342,22 @@ export const useChat = () => {
               }
             : thread
         ));
+
+        // Save the user message to database even on error (but mark as undelivered)
+        try {
+          await ChatService.saveMessage(
+            currentThreadId,
+            userMessage.id,
+            userMessage.content,
+            userMessage.role,
+            userMessage.timestamp.getTime(),
+            userMessage.sequence,
+            false // Mark as undelivered
+          );
+          Logger.log('Saved undelivered user message to database', { userMessage });
+        } catch (saveError) {
+          Logger.error('Error saving undelivered user message', { userMessage, saveError });
+        }
       }
     } finally {
       // Remove this request from active requests
