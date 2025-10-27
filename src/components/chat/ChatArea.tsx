@@ -146,12 +146,12 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   if (!activeThread) {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
-        <div className="text-center max-w-md">
+        <div className="text-center w-lg-7/12 max-sm:max-w-full">
           <h2 className="text-4xl font-bold mb-4 text-foreground drop-shadow-lg my-5">
-            There is no messages in this conversation.
+            Create a new contact or select contacts to start a conversation.
           </h2>
           <p className="leading-relaxed text-lg text-muted-foreground drop-shadow">
-            Send `hi` to {activeThread?.config?.botName}.
+            type anything or hit the `New Chat` button to create a new conversation.
           </p>
         </div>
       </div>
