@@ -6,16 +6,19 @@ import { NewChatPrompt } from "@/components/NewChatPrompt";
 import { useChat } from "@/hooks/useChat";
 import { Button } from "@/components/ui/button";
 import { SplineBackground } from "@/components/ui/SplineBackground";
-import { MoreHorizontal, Menu, Info, Copy, Edit } from "lucide-react";
+import { MoreHorizontal, Menu, Info, Copy, Edit, Image as ImageIcon } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useSiriToast } from "@/hooks/useSiriToast";
 import { ChatService } from '@/services/chatService';
 import { Logger } from '@/utils/logger';
 import { clearThreads } from '@/hooks/useChat';
+import { MediaService } from '@/services/mediaService';
+import { BotMedia } from '@/types/chat';
+import { MediaUpload } from '@/components/media/MediaUpload';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export const ChatLayout = () => {
   const {
@@ -36,18 +39,55 @@ export const ChatLayout = () => {
   const [showRulesDialog, setShowRulesDialog] = useState(false);
   const [isEditingRules, setIsEditingRules] = useState(false);
   const [editedRules, setEditedRules] = useState('');
+  const [botMedia, setBotMedia] = useState<BotMedia[]>([]);
+  const [hasMedia, setHasMedia] = useState(false);
+  const [showMediaDialog, setShowMediaDialog] = useState(false);
 
   const handleSendMessage = (message: string, image?: string) => {
     sendMessage(message, activeThreadId || undefined, image);
   };
 
+  // Load bot media when active thread changes
+  useEffect(() => {
+    const loadBotMedia = async () => {
+      if (activeThreadId) {
+        try {
+          const media = await MediaService.getBotMedia(activeThreadId);
+          setBotMedia(media);
+          setHasMedia(media.length > 0);
+        } catch (error) {
+          console.error('Error loading bot media:', error);
+          setBotMedia([]);
+          setHasMedia(false);
+        }
+      } else {
+        setBotMedia([]);
+        setHasMedia(false);
+      }
+    };
+
+    loadBotMedia();
+  }, [activeThreadId]);
+
+  const handleRequestMedia = async () => {
+    if (!activeThreadId) return;
+
+    try {
+      const nextMedia = await MediaService.getNextMedia(activeThreadId);
+      if (nextMedia) {
+        // Send a message requesting media
+        const mediaMessage = `[Media Request: ${nextMedia.type}]`;
+        sendMessage(mediaMessage, activeThreadId, undefined, nextMedia.mediaId);
+      }
+    } catch (error) {
+      console.error('Error requesting media:', error);
+    }
+  };
+
   const handleCopyRules = () => {
     if (activeThread?.config?.rules) {
       navigator.clipboard.writeText(activeThread.config.rules);
-      toast({
-        title: "Copied!",
-        description: "Roleplay rules copied to clipboard",
-      });
+      toast.success("Roleplay rules copied to clipboard");
     }
   };
 
@@ -65,16 +105,36 @@ export const ChatLayout = () => {
         rules: editedRules.trim()
       });
       setIsEditingRules(false);
-      toast({
-        title: "Saved!",
-        description: "Roleplay rules updated",
-      });
+      toast.success("Roleplay rules updated");
     }
   };
 
   const handleCancelEdit = () => {
     setIsEditingRules(false);
     setEditedRules('');
+  };
+
+  const handleMediaUploadComplete = (results: any[]) => {
+    if (activeThreadId) {
+      MediaService.getBotMedia(activeThreadId).then(media => {
+        setBotMedia(media);
+        setHasMedia(media.length > 0);
+      });
+    }
+  };
+
+  const handleRemoveMedia = async (mediaId: string) => {
+    await MediaService.deleteMedia(mediaId);
+    if (activeThreadId) {
+      MediaService.getBotMedia(activeThreadId).then(media => {
+        setBotMedia(media);
+        setHasMedia(media.length > 0);
+      });
+    }
+  };
+
+  const handleNewThreadPromptAsync = async (prompt: any) => {
+    await handleNewThreadPrompt(prompt);
   };
 
   const { theme } = useTheme();
@@ -156,6 +216,10 @@ export const ChatLayout = () => {
                       No Rules Set
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem onClick={() => setShowMediaDialog(true)}>
+                    <ImageIcon className="h-4 w-4 mr-2" />
+                    Manage Media
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -174,7 +238,15 @@ export const ChatLayout = () => {
             <div className="flex-shrink-0">
               <ChatInput 
                 onSendMessage={handleSendMessage}
+                onRequestMedia={handleRequestMedia}
                 isLoading={isLoading}
+                hasMedia={hasMedia}
+                botMedia={botMedia.map(m => ({
+                  id: m.id || '',
+                  mediaId: m.mediaId,
+                  type: m.type,
+                  blobRef: m.blobRef
+                }))}
               />
             </div>
           </div>
@@ -228,10 +300,32 @@ export const ChatLayout = () => {
         </Dialog>
       )}
 
+      {/* Media Management Dialog */}
+      {showMediaDialog && activeThreadId && (
+        <Dialog open={showMediaDialog} onOpenChange={setShowMediaDialog}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Manage Bot Media</DialogTitle>
+            </DialogHeader>
+            <MediaUpload
+              botId={activeThreadId}
+              onUploadComplete={handleMediaUploadComplete}
+              onRemoveMedia={handleRemoveMedia}
+              existingMedia={botMedia.map(m => ({
+                id: m.id || '',
+                mediaId: m.mediaId,
+                type: m.type,
+                blobRef: m.blobRef
+              }))}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* New Chat Prompt Dialog */}
       {showNewChatPrompt && (
         <NewChatPrompt
-          onSubmit={handleNewThreadPrompt}
+          onSubmit={handleNewThreadPromptAsync}
           onCancel={cancelNewChatPrompt}
         />
       )}

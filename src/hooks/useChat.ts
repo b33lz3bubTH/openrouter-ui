@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ChatThread, Message, ThreadConfig, NewThreadPrompt } from '@/types/chat';
+import { ChatThread, Message, ThreadConfig, NewThreadPrompt, MediaUploadResult } from '@/types/chat';
 import { ChatService } from '@/services/chatService';
 import { useAuth } from '@/hooks/useAuth';
 import { Logger } from '@/utils/logger';
@@ -138,7 +138,7 @@ export const useChat = () => {
   }, []);
 
   // Handle new thread creation with configuration
-  const handleNewThreadPrompt = useCallback((prompt: NewThreadPrompt) => {
+  const handleNewThreadPrompt = useCallback(async (prompt: NewThreadPrompt & { uploadedMedia?: MediaUploadResult[] }) => {
     if (!authData) return;
 
     // For OpenRouter, use default user name since there's no email
@@ -165,6 +165,35 @@ export const useChat = () => {
       updatedAt: new Date()
     };
 
+    // Handle uploaded media if any
+    if (prompt.uploadedMedia && prompt.uploadedMedia.length > 0) {
+      try {
+        // Import MediaService dynamically
+        const { MediaService } = await import('@/services/mediaService');
+        
+        // Move media from temp bot ID to actual thread ID
+        for (const mediaResult of prompt.uploadedMedia) {
+          if (mediaResult.success && mediaResult.mediaId) {
+            // Update the botId in the media record
+            await MediaService.moveMediaToBot(mediaResult.mediaId, newThread.id);
+          }
+        }
+        
+        // Set first image as profile picture
+        const firstImage = prompt.uploadedMedia.find(m => m.success);
+        if (firstImage?.mediaId) {
+          config.profilePicture = firstImage.mediaId;
+        }
+        
+        console.log('📸 Media transferred to new thread:', {
+          threadId: newThread.id,
+          mediaCount: prompt.uploadedMedia.length
+        });
+      } catch (error) {
+        console.error('Error handling uploaded media:', error);
+      }
+    }
+
     // Add the new thread and set it as active
     setThreads(prev => [newThread, ...prev]);
     setActiveThreadId(newThread.id);
@@ -175,7 +204,7 @@ export const useChat = () => {
     setShowNewChatPrompt(false);
   }, []);
 
-  const sendMessage = useCallback(async (content: string, threadId?: string, image?: string) => {
+  const sendMessage = useCallback(async (content: string, threadId?: string, image?: string, mediaRef?: string) => {
     if (!content.trim() || !authData) return;
 
     let currentThreadId = threadId || activeThreadId;
@@ -210,7 +239,8 @@ export const useChat = () => {
       role: 'user',
       timestamp: new Date(),
       sequence: nextSequence,
-      isDelivered: true // User messages are delivered immediately
+      isDelivered: true, // User messages are delivered immediately
+      mediaRef: mediaRef // Add media reference if provided
     };
 
     // Add loading assistant message

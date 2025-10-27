@@ -8,6 +8,7 @@ export interface Message {
   hasImage?: boolean;
   isDelivered?: boolean;
   error?: boolean;
+  mediaRef?: string; // Reference to media used in this message
 }
 
 export interface Conversation {
@@ -38,6 +39,7 @@ export interface ThreadConfig {
   botName: string;
   rules: string;
   userName: string;
+  profilePicture?: string; // Optional profile picture reference
 }
 
 export interface ChatThread {
@@ -67,4 +69,41 @@ export interface PerplexityRequest {
 export interface NewThreadPrompt {
   botName: string;
   rules: string;
+}
+
+// Media management interfaces
+export interface BotMedia {
+  id: string;
+  botId: string;
+  mediaId: string;
+  type: 'image' | 'video';
+  mimeType: string;
+  blobData: ArrayBuffer; // Store actual blob data
+  blobRef: string; // Blob URL reference
+  optimizedDimensions?: {
+    width: number;
+    height: number;
+  };
+  createdAt: Date;
+  lastUsedAt: Date;
+  rotationIndex: number; // For round-robin selection
+}
+
+export interface MediaReference {
+  id: string;
+  messageId: string;
+  mediaId: string;
+  botId: string;
+  createdAt: Date;
+}
+
+export interface MediaUploadResult {
+  success: boolean;
+  mediaId?: string;
+  blobRef?: string; // Add blobRef for preview
+  error?: string;
+  optimizedDimensions?: {
+    width: number;
+    height: number;
+  };
 }
