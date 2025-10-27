@@ -88,13 +88,13 @@ export class ChatService {
     imageData?: string
   ): Promise<string> {
     Logger.log('Sending message', { currentMessage });
-    const context = await this.generateContext(conversationId, rules);
+    const context = await this.generateContext(conversationId, rules, botName);
     Logger.log('Context being sent to AI', { context });
 
     const config = getAuthConfig();
     
     if (config.backend === 'openrouter') {
-      return this.sendOpenRouterMessage(messages, currentMessage, rules, config, conversationId, imageData);
+      return this.sendOpenRouterMessage(messages, currentMessage, rules, config, conversationId, botName, imageData);
     } else {
       return this.sendCustomMessage(messages, currentMessage, userName, botName, rules, config, conversationId);
     }
@@ -106,6 +106,7 @@ export class ChatService {
     rules: string,
     config: AuthConfig,
     conversationId: string,
+    botName: string,
     imageData?: string
   ): Promise<string> {
     try {
@@ -114,7 +115,7 @@ export class ChatService {
       }
 
       // Generate optimized context (roleplay rules + last 5 messages, max 1200 words)
-      const context = await this.generateContext(conversationId, rules);
+      const context = await this.generateContext(conversationId, rules, botName);
 
       // Build system prompt: generic prompt + optimized context
       const apiMessages: any[] = [];
@@ -202,7 +203,7 @@ export class ChatService {
   ): Promise<string> {
     try {
       // Generate optimized context (roleplay rules + last 5 messages, max 1200 words)
-      const contextString = await this.generateContext(conversationId, rules);
+      const contextString = await this.generateContext(conversationId, rules, botName);
       
       // Get recent messages for context (last 5 messages)
       const recentMessages = messages.slice(-5);
@@ -366,7 +367,7 @@ export class ChatService {
   }
 
   // Generate context for the AI model
-  static async generateContext(conversationId: string, roleplayRules: string): Promise<string> {
+  static async generateContext(conversationId: string, roleplayRules: string, botName: string = 'Assistant'): Promise<string> {
     Logger.log('Generating context for conversation', { conversationId });
     const messages = await this.getMessagesByConversation(conversationId);
 
@@ -394,7 +395,7 @@ export class ChatService {
     if (recentMessages.length > 0) {
       context += 'Recent Messages:\n';
       for (const msg of recentMessages) {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const role = msg.role === 'user' ? 'User' : botName;
         context += `${role}: ${msg.content}\n`;
       }
     }
