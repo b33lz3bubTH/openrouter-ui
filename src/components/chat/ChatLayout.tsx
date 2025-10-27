@@ -75,9 +75,8 @@ export const ChatLayout = () => {
     try {
       const nextMedia = await MediaService.getNextMedia(activeThreadId);
       if (nextMedia) {
-        // Send a message requesting media
-        const mediaMessage = `[Media Request: ${nextMedia.type}]`;
-        sendMessage(mediaMessage, activeThreadId, undefined, nextMedia.mediaId);
+        // Send the message with mediaRef directly using the mediaId
+        sendMessage('', activeThreadId, undefined, nextMedia.mediaId);
       }
     } catch (error) {
       console.error('Error requesting media:', error);

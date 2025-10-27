@@ -1,8 +1,9 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatThread, Message } from '@/types/chat';
 import { User, Loader2, AlertCircle, ChevronUp, UserCog2Icon, UserIcon, Bot } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import db from '@/services/chatDatabase';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, AppDispatch } from '@/store/store';
 import { 
@@ -25,6 +26,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch<AppDispatch>();
+  const [mediaMap, setMediaMap] = useState<Map<string, string>>(new Map());
   
   const {
     displayedMessages: reduxMessages,
@@ -141,6 +143,36 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     }
   }, [activeThread?.id, currentThreadId, dispatch]);
 
+  // Load media for messages with mediaRef
+  useEffect(() => {
+    const loadMedia = async () => {
+      const newMediaMap = new Map<string, string>();
+      
+      for (const message of displayedMessages) {
+        if (message.mediaRef) {
+          try {
+            // Get media directly by mediaId stored in mediaRef
+            const media = await db.botMedia.where('mediaId').equals(message.mediaRef).first();
+            if (media) {
+              // Generate blob URL from stored ArrayBuffer
+              const blob = new Blob([media.blobData], { type: media.mimeType });
+              const blobRef = URL.createObjectURL(blob);
+              newMediaMap.set(message.id, blobRef);
+            }
+          } catch (error) {
+            console.error('Error loading media:', error);
+          }
+        }
+      }
+      
+      setMediaMap(newMediaMap);
+    };
+    
+    if (displayedMessages.length > 0) {
+      loadMedia();
+    }
+  }, [displayedMessages]);
+
 
 
   if (!activeThread) {
@@ -222,13 +254,15 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                 <div className="flex justify-end">
                   <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
                     <div className={`rounded-2xl px-4 py-3 ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
-                      <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
-                        {message.content}
-                      </p>
-                      {message.hasImage && (
-                        <div className="mt-2 text-xs text-muted-foreground/70">
-                          📎 Image attached
+                      {message.mediaRef && mediaMap.has(message.id) && (
+                        <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
+                          <img src={mediaMap.get(message.id)} alt="Media" className="w-full h-auto" />
                         </div>
+                      )}
+                      {message.content && (
+                        <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
+                          {message.content}
+                        </p>
                       )}
                       {message.isDelivered === false && (
                         <div className="mt-2 flex items-center text-xs text-destructive">

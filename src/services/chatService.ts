@@ -282,7 +282,7 @@ export class ChatService {
   }
 
   // Save a message to the Dexie database with a specific sequence number
-  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number, isDelivered?: boolean): Promise<void> {
+  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number, isDelivered?: boolean, mediaRef?: string): Promise<void> {
     // If sequence is provided, use it; otherwise calculate it
     let finalSequence = sequence;
     if (finalSequence === undefined) {
@@ -290,8 +290,8 @@ export class ChatService {
       finalSequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
     }
 
-    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence, isDelivered });
-    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence, isDelivered });
+    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence, isDelivered, mediaRef });
+    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence, isDelivered, mediaRef });
   }
 
   // Fix sequences for all messages in a conversation

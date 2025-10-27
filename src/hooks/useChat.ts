@@ -205,7 +205,53 @@ export const useChat = () => {
   }, []);
 
   const sendMessage = useCallback(async (content: string, threadId?: string, image?: string, mediaRef?: string) => {
-    if (!content.trim() || !authData) return;
+    if (!authData) return;
+    
+    // If media request, handle it separately without sending to LLM
+    if (mediaRef) {
+      const currentThreadId = threadId || activeThreadId;
+      if (!currentThreadId) return;
+      
+      const currentThread = threads.find(t => t.id === currentThreadId);
+      if (!currentThread || !currentThread.config) return;
+      
+      const lastMessage = currentThread.messages[currentThread.messages.length - 1];
+      const nextSequence = lastMessage?.sequence ? lastMessage.sequence + 1 : 1;
+      
+      const mediaMessage: Message = {
+        id: uuidv4(),
+        content: '', // Empty content for media-only messages
+        role: 'user',
+        timestamp: new Date(),
+        sequence: nextSequence,
+        isDelivered: true,
+        mediaRef: mediaRef
+      };
+      
+      const botMediaResponse: Message = {
+        id: uuidv4(),
+        content: '', // Empty for now
+        role: 'assistant',
+        timestamp: new Date(),
+        sequence: nextSequence + 1,
+        isLoading: false,
+        error: false
+      };
+      
+      setThreads(prev => prev.map(thread => 
+        thread.id === currentThreadId 
+          ? { ...thread, messages: [...thread.messages, mediaMessage, botMediaResponse], updatedAt: new Date() }
+          : thread
+      ));
+      
+      // Save to database
+      await ChatService.saveMessage(currentThreadId, mediaMessage.id, mediaMessage.content, mediaMessage.role, mediaMessage.timestamp.getTime(), mediaMessage.sequence, true, mediaMessage.mediaRef);
+      await ChatService.saveMessage(currentThreadId, botMediaResponse.id, botMediaResponse.content, botMediaResponse.role, botMediaResponse.timestamp.getTime(), botMediaResponse.sequence);
+      
+      return;
+    }
+    
+    if (!content.trim()) return;
 
     let currentThreadId = threadId || activeThreadId;
     
