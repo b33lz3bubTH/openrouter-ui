@@ -31,7 +31,7 @@ const loadThreads = async (): Promise<ChatThread[]> => {
           .filter((msg) => msg.content.trim() !== '') // Filter out empty messages (failed responses)
           .map((msg) => ({
             id: msg.id,
-            role: msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user',
+            role: (msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user') as 'user' | 'assistant',
             content: msg.content,
             timestamp: new Date(msg.timestamp),
             sequence: msg.sequence, // Ensure sequence is included
@@ -293,6 +293,7 @@ export const useChat = () => {
           currentThread.config.userName,
           currentThread.config.botName,
           currentThread.config.rules,
+          currentThreadId, // Add conversationId parameter
           image // Pass image data if available
         ),
         timeoutPromise

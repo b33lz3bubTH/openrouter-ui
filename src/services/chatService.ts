@@ -84,18 +84,19 @@ export class ChatService {
     userName: string,
     botName: string,
     rules: string,
+    conversationId: string,
     imageData?: string
   ): Promise<string> {
     Logger.log('Sending message', { currentMessage });
-    const context = await this.generateContext(messages[0]?.conversationId || '', rules);
+    const context = await this.generateContext(conversationId, rules);
     Logger.log('Context being sent to AI', { context });
 
     const config = getAuthConfig();
     
     if (config.backend === 'openrouter') {
-      return this.sendOpenRouterMessage(messages, currentMessage, rules, config, imageData);
+      return this.sendOpenRouterMessage(messages, currentMessage, rules, config, conversationId, imageData);
     } else {
-      return this.sendCustomMessage(messages, currentMessage, userName, botName, rules, config);
+      return this.sendCustomMessage(messages, currentMessage, userName, botName, rules, config, conversationId);
     }
   }
 
@@ -104,6 +105,7 @@ export class ChatService {
     currentMessage: string,
     rules: string,
     config: AuthConfig,
+    conversationId: string,
     imageData?: string
   ): Promise<string> {
     try {
@@ -111,10 +113,10 @@ export class ChatService {
         throw new Error('OpenRouter API key and model name are required');
       }
 
-      // Trim messages to keep under 3000 chars
-      const trimmedMessages = this.trimMessages(messages);
+      // Generate optimized context (roleplay rules + last 5 messages, max 1200 words)
+      const context = await this.generateContext(conversationId, rules);
 
-      // Build system prompt: generic prompt + roleplay rules
+      // Build system prompt: generic prompt + optimized context
       const apiMessages: any[] = [];
       const systemParts: string[] = [];
       
@@ -122,8 +124,8 @@ export class ChatService {
         systemParts.push(config.genericPrompt);
       }
       
-      if (rules && rules.trim()) {
-        systemParts.push(`\n\nRoleplay Rules:\n${rules}`);
+      if (context && context.trim()) {
+        systemParts.push(`\n\nContext:\n${context}`);
       }
       
       if (systemParts.length > 0) {
@@ -132,14 +134,6 @@ export class ChatService {
           content: systemParts.join('\n')
         });
       }
-
-      // Add trimmed conversation messages for context
-      trimmedMessages.forEach(msg => {
-        apiMessages.push({
-          role: msg.role === 'assistant' ? 'assistant' : 'user',
-          content: msg.content
-        });
-      });
 
       // Add current message with optional image
       if (imageData) {
@@ -203,19 +197,23 @@ export class ChatService {
     userName: string,
     botName: string,
     rules: string,
-    config: AuthConfig
+    config: AuthConfig,
+    conversationId: string
   ): Promise<string> {
     try {
-      // Trim messages to keep under 3000 chars
-      const trimmedMessages = this.trimMessages(messages);
+      // Generate optimized context (roleplay rules + last 5 messages, max 1200 words)
+      const contextString = await this.generateContext(conversationId, rules);
       
-      // Convert trimmed messages to backend context format
+      // Get recent messages for context (last 5 messages)
+      const recentMessages = messages.slice(-5);
+      
+      // Convert recent messages to backend context format
       const context: BackendContextMessage[] = [];
       
       // Group messages into conversation pairs
-      for (let i = 0; i < trimmedMessages.length; i += 2) {
-        const userMsg = trimmedMessages[i];
-        const botMsg = trimmedMessages[i + 1];
+      for (let i = 0; i < recentMessages.length; i += 2) {
+        const userMsg = recentMessages[i];
+        const botMsg = recentMessages[i + 1];
         
         if (userMsg && userMsg.role === 'user') {
           const contextObj: BackendContextMessage = {};
@@ -233,7 +231,7 @@ export class ChatService {
         context,
         message: currentMessage,
         user: userName,
-        rules
+        rules: contextString // Use optimized context instead of raw rules
       };
 
       console.log('🚀 SENDING TO BACKEND:', JSON.stringify(request, null, 2));
@@ -375,41 +373,54 @@ export class ChatService {
     // Sort messages by sequence in ascending order
     messages.sort((a, b) => a.sequence - b.sequence);
 
-    // Filter out undelivered messages and take recent messages (last 6 messages for context)
+    // Filter out undelivered messages and take last 5 messages
     const deliveredMessages = messages.filter(msg => msg.isDelivered !== false);
-    const recentMessages = deliveredMessages.slice(-6);
+    const recentMessages = deliveredMessages.slice(-5);
     
-    let context = '';
-    let userMessages: string[] = [];
-    let assistantMessages: string[] = [];
+    console.log('📝 Context: Building context from messages:', {
+      totalMessages: messages.length,
+      deliveredMessages: deliveredMessages.length,
+      recentMessages: recentMessages.length,
+      hasRoleplayRules: !!roleplayRules
+    });
 
-    // Separate user and assistant messages
-    for (const msg of recentMessages) {
-      if (msg.role === 'user') {
-        userMessages.push(msg.content);
-      } else {
-        assistantMessages.push(msg.content);
+    // Start with roleplay rules
+    let context = '';
+    if (roleplayRules && roleplayRules.trim()) {
+      context += `Roleplay Rules: ${roleplayRules.trim()}\n\n`;
+    }
+
+    // Add recent messages
+    if (recentMessages.length > 0) {
+      context += 'Recent Messages:\n';
+      for (const msg of recentMessages) {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        context += `${role}: ${msg.content}\n`;
       }
     }
 
-    // Concatenate user messages
-    if (userMessages.length > 0) {
-      context += `User recent messages: ${userMessages.join(' > ')}\n`;
+    // Count words (rough estimation: split by spaces)
+    const wordCount = context.split(/\s+/).length;
+    console.log('📝 Context: Word count before truncation:', wordCount);
+
+    // If over 1200 words, truncate intelligently
+    if (wordCount > 1200) {
+      console.log('📝 Context: Truncating context to 1200 words');
+      
+      // Split into words and take first 1200 words
+      const words = context.split(/\s+/);
+      const truncatedWords = words.slice(0, 1200);
+      context = truncatedWords.join(' ') + '...';
+      
+      console.log('📝 Context: Final word count after truncation:', context.split(/\s+/).length);
     }
 
-    // Concatenate assistant messages (truncated)
-    if (assistantMessages.length > 0) {
-      const assistantText = assistantMessages.join(' ');
-      const truncatedAssistant = assistantText.length > 300 ? assistantText.substring(0, 300) + '...' : assistantText;
-      context += `Assistant responses: ${truncatedAssistant}\n`;
-    }
-
-    // Limit total context to 1200 characters
-    if (context.length > 1200) {
-      context = context.substring(0, 1200) + '...';
-    }
-
-    Logger.log('Generated context for AI', { context });
+    Logger.log('Generated context for AI', { 
+      contextLength: context.length,
+      wordCount: context.split(/\s+/).length,
+      contextPreview: context.substring(0, 200) + '...'
+    });
+    
     return context.trim();
   }
 
