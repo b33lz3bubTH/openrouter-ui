@@ -1,10 +1,18 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { SplineLogo } from '@/components/ui/SplineLogo';
 import { ChatThread, Message } from '@/types/chat';
-import { User, Bot, Loader2, AlertCircle, ChevronUp } from 'lucide-react';
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { ChatService } from '@/services/chatService';
+import { User, Loader2, AlertCircle, ChevronUp } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState, AppDispatch } from '@/store/store';
+import { 
+  loadInitialMessages, 
+  loadMoreMessages, 
+  addNewMessages, 
+  resetPagination, 
+  setCurrentThread,
+  updateMessageErrorState 
+} from '@/store/chatPaginationSlice';
 
 interface ChatAreaProps {
   activeThread: ChatThread | undefined;
@@ -14,256 +22,97 @@ interface ChatAreaProps {
 export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const [displayedMessages, setDisplayedMessages] = useState<Message[]>([]);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [totalMessageCount, setTotalMessageCount] = useState(0);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [isManualLoading, setIsManualLoading] = useState(false);
+  const dispatch = useDispatch<AppDispatch>();
+  
+  const {
+    displayedMessages: reduxMessages,
+    isLoadingMore,
+    hasMoreMessages,
+    isInitialLoad,
+    currentThreadId
+  } = useSelector((state: RootState) => state.chatPagination);
 
-  // Debug logging
-  console.log('📝 ChatArea props:', { 
+  // Convert Redux messages back to proper Message format for rendering
+  const displayedMessages: Message[] = reduxMessages.map(msg => ({
+    ...msg,
+    timestamp: new Date(msg.timestamp) // Convert number back to Date
+  }));
+
+  console.log('📝 ChatArea Redux state:', { 
     activeThread: activeThread?.id, 
-    messagesCount: activeThread?.messages?.length,
-    isLoading,
+    currentThreadId,
     displayedMessagesCount: displayedMessages.length,
     hasMoreMessages,
-    totalMessageCount
+    isLoadingMore,
+    isInitialLoad
   });
 
-  // Load initial messages when thread changes
-  const loadInitialMessages = useCallback(async (threadId: string) => {
-    try {
-      setIsInitialLoad(true);
-      const [recentMessages, totalCount] = await Promise.all([
-        ChatService.getRecentMessages(threadId, 11),
-        ChatService.getMessageCount(threadId)
-      ]);
-
-      const filteredMessages = recentMessages
-        .filter((msg) => msg.content.trim() !== '')
-        .map((msg) => ({
-          id: msg.id,
-          role: (msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user') as 'user' | 'assistant',
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          sequence: msg.sequence,
-          isDelivered: msg.isDelivered !== false,
-        }));
-
-      setDisplayedMessages(filteredMessages);
-      setTotalMessageCount(totalCount);
-      // Force show button if we have any messages (for testing)
-      setHasMoreMessages(filteredMessages.length > 0); // Show button if we have any messages
-      
-      console.log('📝 Loaded initial messages:', { 
-        threadId, 
-        loaded: filteredMessages.length, 
-        total: totalCount,
-        hasMore: filteredMessages.length > 0,
-        reason: filteredMessages.length > 0 ? 'Have messages, showing load more button' : 'No messages'
-      });
-    } catch (error) {
-      console.error('Error loading initial messages:', error);
-    } finally {
-      setIsInitialLoad(false);
-    }
-  }, []);
-
-  // Load more messages manually (simplified)
-  const loadMoreMessages = useCallback(async () => {
+  // Handle load more messages
+  const handleLoadMore = () => {
     if (!activeThread?.id || isLoadingMore || !hasMoreMessages) return;
-
-    try {
-      setIsLoadingMore(true);
-      
-      const oldestMessage = displayedMessages[0];
-      if (!oldestMessage) return;
-
-      const olderMessages = await ChatService.getOlderMessages(
-        activeThread.id, 
-        oldestMessage.sequence || 0, 
-        10
-      );
-
-      const filteredOlderMessages = olderMessages
-        .filter((msg) => msg.content.trim() !== '')
-        .map((msg) => ({
-          id: msg.id,
-          role: (msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user') as 'user' | 'assistant',
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          sequence: msg.sequence,
-          isDelivered: msg.isDelivered !== false,
-        }));
-
-      if (filteredOlderMessages.length > 0) {
-        setDisplayedMessages(prev => [...filteredOlderMessages, ...prev]);
-        setHasMoreMessages(filteredOlderMessages.length > 0);
-        console.log('📝 Loaded more messages:', { 
-          loaded: filteredOlderMessages.length,
-          hasMore: filteredOlderMessages.length > 0
-        });
-      } else {
-        setHasMoreMessages(false);
-      }
-    } catch (error) {
-      console.error('Error loading more messages:', error);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [activeThread?.id, displayedMessages, isLoadingMore, hasMoreMessages]);
+    
+    const oldestMessage = displayedMessages[0];
+    if (!oldestMessage?.sequence) return;
+    
+    dispatch(loadMoreMessages({ 
+      threadId: activeThread.id, 
+      oldestSequence: oldestMessage.sequence 
+    }));
+  };
 
   // Load initial messages when thread changes
   useEffect(() => {
-    if (activeThread?.id) {
-      loadInitialMessages(activeThread.id);
+    if (activeThread?.id && activeThread.id !== currentThreadId) {
+      dispatch(setCurrentThread(activeThread.id));
+      dispatch(loadInitialMessages(activeThread.id));
     }
-  }, [activeThread?.id, loadInitialMessages]);
-
-  // Force scroll to bottom when thread changes and messages are loaded
-  useEffect(() => {
-    if (activeThread?.id && displayedMessages.length > 0 && !isInitialLoad) {
-      const scrollToBottom = () => {
-        if (messagesEndRef.current) {
-          console.log('📝 Thread changed, scrolling to bottom using scrollIntoView:', {
-            threadId: activeThread.id,
-            messagesCount: displayedMessages.length
-          });
-          messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }
-      };
-      
-      // Multiple attempts with longer delays for thread changes
-      setTimeout(scrollToBottom, 100);
-      setTimeout(scrollToBottom, 300);
-      setTimeout(scrollToBottom, 600);
-    }
-  }, [activeThread?.id, displayedMessages.length, isInitialLoad]);
-
-  // Handle scroll events for infinite scroll
-  useEffect(() => {
-    const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
-    if (!scrollContainer) {
-      console.log('📝 Scroll container not found');
-      return;
-    }
-
-    console.log('📝 Setting up scroll listener for pagination');
-
-    const handleScroll = () => {
-      const scrollTop = scrollContainer.scrollTop;
-      const scrollHeight = scrollContainer.scrollHeight;
-      const clientHeight = scrollContainer.clientHeight;
-      
-      console.log('📝 Scroll event:', {
-        scrollTop,
-        scrollHeight,
-        clientHeight,
-        hasMoreMessages,
-        isLoadingMore,
-        displayedMessagesCount: displayedMessages.length
-      });
-      
-      // More aggressive scroll detection - trigger when near the top
-      if (scrollTop <= 300 && hasMoreMessages && !isLoadingMore && !isManualLoading) {
-        console.log('📝 Scrolled near top, loading more messages!');
-        loadMoreMessages();
-      }
-    };
-
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-    
-    // Also add a manual trigger for testing
-    console.log('📝 Scroll listener added, current state:', {
-      hasMoreMessages,
-      isLoadingMore,
-      displayedMessagesCount: displayedMessages.length
-    });
-    
-    return () => {
-      console.log('📝 Removing scroll listener');
-      scrollContainer.removeEventListener('scroll', handleScroll);
-    };
-  }, [hasMoreMessages, isLoadingMore, loadMoreMessages, displayedMessages.length, isManualLoading]);
-
-  // Auto-scroll to bottom on initial load
-  useEffect(() => {
-    if (!isInitialLoad && displayedMessages.length > 0) {
-      const scrollToBottom = () => {
-        if (messagesEndRef.current) {
-          console.log('📝 Auto-scrolling to bottom on initial load using scrollIntoView:', {
-            messagesCount: displayedMessages.length
-          });
-          messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }
-      };
-      
-      // More aggressive attempts for initial load
-      setTimeout(scrollToBottom, 50);
-      setTimeout(scrollToBottom, 200);
-      setTimeout(scrollToBottom, 500);
-      setTimeout(scrollToBottom, 1000);
-    }
-  }, [isInitialLoad, displayedMessages.length]);
+  }, [activeThread?.id, currentThreadId, dispatch]);
 
   // Handle new messages from activeThread (real-time updates)
   useEffect(() => {
-    if (activeThread?.messages && activeThread.messages.length > 0) {
-      // Get the latest messages from activeThread that aren't already in displayedMessages
-      const latestMessages = activeThread.messages.slice(-5); // Get last 5 messages
-      const existingIds = new Set(displayedMessages.map(msg => msg.id));
-      const newMessages = latestMessages.filter(msg => !existingIds.has(msg.id));
-      
-      if (newMessages.length > 0) {
-        setDisplayedMessages(prev => [...prev, ...newMessages]);
-        
-        // Auto-scroll to bottom when new messages arrive
-        const scrollToBottom = () => {
-          if (messagesEndRef.current) {
-            console.log('📝 Scrolling to bottom for new messages using scrollIntoView:', {
-              newMessagesCount: newMessages.length
-            });
-            messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-          }
-        };
-        
-        // More aggressive attempts for new messages
-        setTimeout(scrollToBottom, 50);
-        setTimeout(scrollToBottom, 200);
-        setTimeout(scrollToBottom, 500);
-      }
+    if (activeThread?.messages && activeThread.messages.length > 0 && activeThread.id === currentThreadId) {
+      const latestMessages = activeThread.messages.slice(-5);
+      dispatch(addNewMessages({ messages: latestMessages, threadId: activeThread.id }));
     }
-  }, [activeThread?.messages, displayedMessages]);
+  }, [activeThread?.messages, activeThread?.id, currentThreadId, dispatch]);
 
-  // MutationObserver to detect DOM changes and force scroll to bottom
+  // Sync error states from activeThread to Redux
   useEffect(() => {
-    const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
-    if (!scrollContainer) return;
+    if (activeThread?.messages && activeThread.id === currentThreadId) {
+      activeThread.messages.forEach(msg => {
+        if (msg.error !== undefined || msg.isLoading !== undefined) {
+          dispatch(updateMessageErrorState({
+            messageId: msg.id,
+            error: msg.error || false,
+            isLoading: msg.isLoading || false
+          }));
+        }
+      });
+    }
+  }, [activeThread?.messages, activeThread?.id, currentThreadId, dispatch]);
 
-    const observer = new MutationObserver(() => {
-      // Only scroll to bottom if we're not loading more messages (to avoid interfering with pagination)
-      if (!isLoadingMore && messagesEndRef.current) {
-        const scrollToBottom = () => {
-          console.log('📝 DOM changed, forcing scroll to bottom using scrollIntoView');
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        };
-        
-        // More aggressive attempts for DOM changes
-        setTimeout(scrollToBottom, 50);
-        setTimeout(scrollToBottom, 200);
-        setTimeout(scrollToBottom, 500);
-      }
-    });
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (displayedMessages.length > 0) {
+      const scrollToBottom = () => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+      };
+      
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 200);
+    }
+  }, [displayedMessages.length]);
 
-    observer.observe(scrollContainer, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
+  // Reset pagination when thread changes
+  useEffect(() => {
+    if (activeThread?.id !== currentThreadId) {
+      dispatch(resetPagination());
+    }
+  }, [activeThread?.id, currentThreadId, dispatch]);
 
-    return () => observer.disconnect();
-  }, [isLoadingMore]);
+
 
   if (!activeThread) {
     return (
@@ -309,11 +158,12 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
           </div>
         )}
 
+
         {/* Load more messages button */}
         {hasMoreMessages && !isLoadingMore && (
           <div className="text-center py-2">
             <Button
-              onClick={loadMoreMessages}
+              onClick={handleLoadMore}
               variant="outline"
               size="sm"
               className="h-8 w-8 rounded-full p-0 hover:bg-accent"
@@ -323,9 +173,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
           </div>
         )}
 
-        {displayedMessages.map((message) => {
-          console.log('📝 Rendering message:', message);
-          return (
+
+        {displayedMessages.map((message) => (
             <div key={message.id} className="space-y-4">
               {message.role === 'user' ? (
                 // User Message
@@ -363,7 +212,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                       </div>
                     </div>
                     <div className="bg-card border rounded-2xl px-4 py-3 min-w-[100px]">
-                      {message.isLoading ? (
+                      {message.isLoading && !message.error ? (
                         <div className="flex items-center space-x-2 text-muted-foreground">
                           <div className="flex space-x-1">
                             <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
@@ -372,28 +221,17 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                           </div>
                           <span className="text-sm">{activeThread?.config?.botName} is typing...</span>
                         </div>
-                      ) : (
+                      ) : !message.error && message.content.trim() !== '' ? (
                         <p className="text-card-foreground text-sm leading-relaxed">
                           {message.content}
                         </p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
               )}
             </div>
-          );
-        })}
-        
-        {/* Show global loading indicator when there are active requests
-        {isLoading && (
-          <div className="text-center py-4">
-            <div className="inline-flex items-center space-x-2 text-muted-foreground text-sm">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Sand is processing multiple requests...</span>
-            </div>
-          </div>
-        )} */}
+        ))}
         
         {/* Invisible element to scroll to */}
         <div ref={messagesEndRef} />

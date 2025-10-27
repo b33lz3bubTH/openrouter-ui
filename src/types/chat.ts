@@ -7,6 +7,7 @@ export interface Message {
   isLoading?: boolean;
   hasImage?: boolean;
   isDelivered?: boolean;
+  error?: boolean;
 }
 
 export interface Conversation {

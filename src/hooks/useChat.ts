@@ -248,21 +248,55 @@ export const useChat = () => {
       setIsLoading(true);
     }
 
+    // Set a fallback timeout to handle cases where the API call doesn't fail but never completes
+    const fallbackTimeout = setTimeout(() => {
+      if (activeRequests.current.has(requestId)) {
+        console.log('📝 Fallback timeout triggered, setting error state');
+        setThreads(prev => prev.map(thread => 
+          thread.id === currentThreadId 
+            ? {
+                ...thread,
+                messages: thread.messages.map(msg => 
+                  msg.id === userMessage.id 
+                    ? { ...msg, isDelivered: false }
+                    : msg.id === loadingMessage.id
+                    ? { ...msg, isLoading: false, error: true }
+                    : msg
+                ),
+                updatedAt: new Date()
+              }
+            : thread
+        ));
+        activeRequests.current.delete(requestId);
+        if (activeRequests.current.size === 0) {
+          setIsLoading(false);
+        }
+      }
+    }, 35000); // 35 seconds fallback
+
     try {
       // Generate context for the message
       const roleplayRules = currentThread.config.rules;
       const context = await ChatService.generateContext(currentThreadId, roleplayRules);
       Logger.log('Sending message with context', { content, context });
 
+      // Add timeout to the API call
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
+      });
+
       // Call the actual backend service with messages excluding loading messages
-      const response = await ChatService.sendMessage(
-        currentThread.messages.filter(msg => !msg.isLoading), // Don't send loading messages
-        content.trim(),
-        currentThread.config.userName,
-        currentThread.config.botName,
-        currentThread.config.rules,
-        image // Pass image data if available
-      );
+      const response = await Promise.race([
+        ChatService.sendMessage(
+          currentThread.messages.filter(msg => !msg.isLoading), // Don't send loading messages
+          content.trim(),
+          currentThread.config.userName,
+          currentThread.config.botName,
+          currentThread.config.rules,
+          image // Pass image data if available
+        ),
+        timeoutPromise
+      ]);
       
       console.log('📝 Backend response:', response);
       
@@ -326,40 +360,58 @@ export const useChat = () => {
       }
     } catch (error) {
       console.error('❌ Error sending message:', error);
+      console.log('📝 Error details:', { 
+        requestId, 
+        activeRequests: Array.from(activeRequests.current),
+        hasRequest: activeRequests.current.has(requestId)
+      });
       
-      // Only handle error if request is still active
-      if (activeRequests.current.has(requestId)) {
-        // Mark user message as undelivered and remove loading message on error
-        setThreads(prev => prev.map(thread => 
-          thread.id === currentThreadId 
-            ? {
-                ...thread,
-                messages: thread.messages.map(msg => 
-                  msg.id === userMessage.id 
-                    ? { ...msg, isDelivered: false }
-                    : msg
-                ).filter(msg => msg.id !== loadingMessage.id)
-              }
-            : thread
-        ));
+      // Always handle error regardless of active requests check
+      console.log('📝 Handling error, updating messages:', { 
+        userMessageId: userMessage.id, 
+        loadingMessageId: loadingMessage.id,
+        currentThreadId 
+      });
+      
+      // Mark user message as undelivered and show error for assistant message
+      setThreads(prev => prev.map(thread => 
+        thread.id === currentThreadId 
+          ? {
+              ...thread,
+              messages: thread.messages.map(msg => {
+                if (msg.id === userMessage.id) {
+                  console.log('📝 Marking user message as undelivered:', msg);
+                  return { ...msg, isDelivered: false };
+                } else if (msg.id === loadingMessage.id) {
+                  console.log('📝 Setting assistant message error state:', { ...msg, isLoading: false, error: true });
+                  return { ...msg, isLoading: false, error: true };
+                }
+                return msg;
+              }),
+              updatedAt: new Date()
+            }
+          : thread
+      ));
 
-        // Save the user message to database even on error (but mark as undelivered)
-        try {
-          await ChatService.saveMessage(
-            currentThreadId,
-            userMessage.id,
-            userMessage.content,
-            userMessage.role,
-            userMessage.timestamp.getTime(),
-            userMessage.sequence,
-            false // Mark as undelivered
-          );
-          Logger.log('Saved undelivered user message to database', { userMessage });
-        } catch (saveError) {
-          Logger.error('Error saving undelivered user message', { userMessage, saveError });
-        }
+      // Save the user message to database even on error (but mark as undelivered)
+      try {
+        await ChatService.saveMessage(
+          currentThreadId,
+          userMessage.id,
+          userMessage.content,
+          userMessage.role,
+          userMessage.timestamp.getTime(),
+          userMessage.sequence,
+          false // Mark as undelivered
+        );
+        Logger.log('Saved undelivered user message to database', { userMessage });
+      } catch (saveError) {
+        Logger.error('Error saving undelivered user message', { userMessage, saveError });
       }
     } finally {
+      // Clear the fallback timeout
+      clearTimeout(fallbackTimeout);
+      
       // Remove this request from active requests
       activeRequests.current.delete(requestId);
       
