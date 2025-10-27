@@ -63,7 +63,7 @@ export const loadMoreMessages = createAsyncThunk(
   async ({ threadId, oldestSequence }: { threadId: string; oldestSequence: number }) => {
     console.log('📝 Redux: Loading more messages', { threadId, oldestSequence });
     
-    const olderMessages = await ChatService.getOlderMessages(threadId, oldestSequence, 10);
+    const olderMessages = await ChatService.getOlderMessages(threadId, oldestSequence, 20);
     console.log('📝 Redux: Retrieved older messages from DB', { count: olderMessages.length });
     
     const filteredOlderMessages = olderMessages
