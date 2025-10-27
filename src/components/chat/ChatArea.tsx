@@ -1,6 +1,6 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatThread, Message } from '@/types/chat';
-import { User, Loader2, AlertCircle, ChevronUp } from 'lucide-react';
+import { User, Loader2, AlertCircle, ChevronUp, UserCog2Icon, UserIcon, Bot } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { useDispatch, useSelector } from 'react-redux';
@@ -14,6 +14,7 @@ import {
   updateMessageErrorState,
   updateMessageDeliveredState 
 } from '@/store/chatPaginationSlice';
+import { Avatar, AvatarFallback, AvatarImage } from '@radix-ui/react-avatar';
 
 interface ChatAreaProps {
   activeThread: ChatThread | undefined;
@@ -147,10 +148,10 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
       <div className="flex-1 flex items-center justify-center bg-transparent">
         <div className="text-center max-w-md">
           <h2 className="text-4xl font-bold mb-4 text-foreground drop-shadow-lg my-5">
-            Welcome to Sand
+            There is no messages in this conversation.
           </h2>
           <p className="leading-relaxed text-lg text-muted-foreground drop-shadow">
-            Start a conversation by typing a message below. I'll help you with any questions you have.
+            Send `hi` to {activeThread?.config?.botName}.
           </p>
         </div>
       </div>
@@ -165,7 +166,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
             {activeThread.title}
           </h2>
           <p className="leading-relaxed mb-6 text-muted-foreground drop-shadow">
-            This is a new conversation. Type a message below to get started.
+            Send `hi` to {activeThread?.config?.botName}.
           </p>
         </div>
       </div>
@@ -219,7 +220,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
               {message.role === 'user' ? (
                 // User Message
                 <div className="flex justify-end">
-                  <div className="flex items-start space-x-3 max-w-[80%]">
+                  <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
                     <div className={`rounded-2xl px-4 py-3 ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
                       <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
                         {message.content}
@@ -236,20 +237,17 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                         </div>
                       )}
                     </div>
-                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
-                      <User className="h-4 w-4 text-secondary-foreground" />
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <User className="h-4 w-4 text-white" />
                     </div>
                   </div>
                 </div>
               ) : !message.error ? (
                 // Assistant Message - only show if no error
                 <div className="flex justify-start">
-                  <div className="flex items-start space-x-3 max-w-[80%]">
-                    <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center flex-shrink-0">
-                      <div className="relative">
-                        <div className="w-3 h-3 bg-background rounded-sm transform rotate-12 absolute"></div>
-                        <div className="w-3 h-3 bg-muted rounded-sm transform -rotate-12"></div>
-                      </div>
+                  <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <Bot className="h-4 w-4 text-white" />
                     </div>
                     <div className="bg-card border rounded-2xl px-4 py-3 min-w-[100px]">
                       {message.isLoading ? (
