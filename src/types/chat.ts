@@ -9,6 +9,7 @@ export interface Message {
   isDelivered?: boolean;
   error?: boolean;
   mediaRef?: string; // Reference to media used in this message
+  eventType?: 'text' | 'image_request' | 'media_request' | 'file_upload'; // Track the event type that created this message
 }
 
 export interface Conversation {

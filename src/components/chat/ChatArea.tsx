@@ -39,7 +39,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   // Convert Redux messages back to proper Message format for rendering
   const displayedMessages: Message[] = reduxMessages.map(msg => ({
     ...msg,
-    timestamp: new Date(msg.timestamp) // Convert number back to Date
+    timestamp: new Date(msg.timestamp), // Convert number back to Date
+    mediaRef: msg.mediaRef // Ensure mediaRef is included
   }));
 
   console.log('📝 ChatArea Redux state:', { 
@@ -48,7 +49,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     displayedMessagesCount: displayedMessages.length,
     hasMoreMessages,
     isLoadingMore,
-    isInitialLoad
+    isInitialLoad,
+    messagesWithMedia: displayedMessages.filter(msg => msg.mediaRef).map(msg => ({ id: msg.id, mediaRef: msg.mediaRef }))
   });
 
   // Handle load more messages
@@ -143,37 +145,63 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     }
   }, [activeThread?.id, currentThreadId, dispatch]);
 
-  // Load media for messages with mediaRef
+  // Load media for messages with Media ID patterns
   useEffect(() => {
     const loadMedia = async () => {
+      // Extract Media IDs from message content using regex
+      const messagesNeedingMedia = displayedMessages.filter(msg => {
+        if (mediaMap.has(msg.id)) return false; // Already loaded
+        
+        // Check if message contains Media ID pattern
+        const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+        return mediaIdPattern.test(msg.content);
+      });
+      
+      if (messagesNeedingMedia.length === 0) return;
+      
       const newMediaMap = new Map<string, string>();
       
-      for (const message of displayedMessages) {
-        if (message.mediaRef) {
-          try {
-            // Get media directly by mediaId stored in mediaRef
-            const media = await db.botMedia.where('mediaId').equals(message.mediaRef).first();
+      for (const message of messagesNeedingMedia) {
+        try {
+          // Extract Media ID from message content
+          const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+          const match = message.content.match(mediaIdPattern);
+          
+          if (match && match[1]) {
+            const mediaId = match[1].trim();
+            console.log('📸 Extracted Media ID from message:', { messageId: message.id, mediaId, content: message.content });
+            
+            // Get media from IndexedDB using extracted Media ID
+            const media = await db.botMedia.where('mediaId').equals(mediaId).first();
             if (media) {
               // Generate blob URL from stored ArrayBuffer
               const blob = new Blob([media.blobData], { type: media.mimeType });
               const blobRef = URL.createObjectURL(blob);
               newMediaMap.set(message.id, blobRef);
+              console.log('📸 Created blob URL for message:', { messageId: message.id, mediaId, blobRef });
+            } else {
+              console.warn('📸 Media not found in IndexedDB:', { mediaId, messageId: message.id });
             }
-          } catch (error) {
-            console.error('Error loading media:', error);
           }
+        } catch (error) {
+          console.error('Error loading media:', error);
         }
       }
       
-      setMediaMap(newMediaMap);
+      if (newMediaMap.size > 0) {
+        setMediaMap(prev => new Map([...prev, ...newMediaMap]));
+      }
     };
     
-    if (displayedMessages.length > 0) {
-      loadMedia();
-    }
+    loadMedia();
   }, [displayedMessages]);
 
-
+  // Cleanup blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      mediaMap.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   if (!activeThread) {
     return (
@@ -254,11 +282,15 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                 <div className="flex justify-end">
                   <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
                     <div className={`rounded-2xl px-4 py-3 ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
-                      {message.mediaRef && mediaMap.has(message.id) && (
-                        <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
-                          <img src={mediaMap.get(message.id)} alt="Media" className="w-full h-auto" />
-                        </div>
-                      )}
+                      {(() => {
+                        const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+                        const hasMediaId = mediaIdPattern.test(message.content);
+                        return hasMediaId && mediaMap.has(message.id) && (
+                          <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
+                            <img src={mediaMap.get(message.id)} alt="Media" className="w-full h-auto" />
+                          </div>
+                        );
+                      })()}
                       {message.content && (
                         <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
                           {message.content}
@@ -293,11 +325,28 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                           </div>
                           <span className="text-sm">{activeThread?.config?.botName} is typing...</span>
                         </div>
-                      ) : message.content.trim() !== '' ? (
-                        <p className="text-card-foreground text-sm leading-relaxed">
-                          {message.content}
-                        </p>
-                      ) : null}
+                      ) : (
+                        <>
+                          {(() => {
+                            const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+                            const hasMediaId = mediaIdPattern.test(message.content);
+                            return hasMediaId && mediaMap.has(message.id) && (
+                              <div className="mb-3 rounded-lg overflow-hidden max-w-sm">
+                                <img 
+                                  src={mediaMap.get(message.id)} 
+                                  alt="Bot media" 
+                                  className="w-full h-auto rounded-lg" 
+                                />
+                              </div>
+                            );
+                          })()}
+                          {message.content.trim() !== '' && (
+                            <p className="text-card-foreground text-sm leading-relaxed">
+                              {message.content}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

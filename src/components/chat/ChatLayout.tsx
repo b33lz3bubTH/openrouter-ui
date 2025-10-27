@@ -246,6 +246,7 @@ export const ChatLayout = () => {
                   type: m.type,
                   blobRef: m.blobRef
                 }))}
+                threadId={activeThreadId || undefined}
               />
             </div>
           </div>

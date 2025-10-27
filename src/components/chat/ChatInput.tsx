@@ -3,6 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Paperclip, X, Image } from 'lucide-react';
 import { useSiriToast } from '@/hooks/useSiriToast';
+import { useDispatch } from 'react-redux';
+import { addTextEvent, addImageRequestEvent, addMediaRequestEvent } from '@/store/chatEventSlice';
+import { useAuth } from '@/hooks/useAuth';
 
 interface ChatInputProps {
   onSendMessage: (message: string, image?: string) => void;
@@ -10,22 +13,42 @@ interface ChatInputProps {
   isLoading: boolean;
   hasMedia?: boolean; // Whether the bot has media available
   botMedia?: Array<{ id: string; mediaId: string; type: 'image' | 'video'; blobRef: string }>; // Bot's media gallery
+  threadId?: string;
 }
 
-export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia = false, botMedia = [] }: ChatInputProps) => {
+export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia = false, botMedia = [], threadId }: ChatInputProps) => {
   const [message, setMessage] = useState('');
   const [pastedImage, setPastedImage] = useState<string | null>(null);
   const [showMediaGallery, setShowMediaGallery] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toast = useSiriToast();
+  const dispatch = useDispatch();
+  const { authData } = useAuth();
 
   const handleSubmit = () => {
-    if (!message.trim() || isLoading) return;
-    onSendMessage(message, pastedImage || undefined);
+    if (!message.trim() || isLoading || !threadId || !authData) return;
+    
+    if (pastedImage) {
+      // Dispatch image request event
+      dispatch(addImageRequestEvent({
+        threadId,
+        userId: authData.email || 'User',
+        imageData: pastedImage
+      }));
+      toast.info("Image request sent! 📷");
+    } else {
+      // Dispatch text event
+      dispatch(addTextEvent({
+        content: message,
+        threadId,
+        userId: authData.email || 'User'
+      }));
+      toast.info("Message sent! 📨");
+    }
+    
     setMessage('');
     setPastedImage(null);
-    toast.info("Message sent! 📨");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -120,8 +143,12 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
                         alt="Bot media"
                         className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() => {
-                          if (onRequestMedia) {
-                            onRequestMedia();
+                          if (threadId && authData) {
+                            dispatch(addMediaRequestEvent({
+                              threadId,
+                              userId: authData.email || 'User',
+                              mediaRef: media.blobRef
+                            }));
                             toast.info("Requesting this media from bot! 📸");
                           }
                         }}
@@ -132,8 +159,12 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
                         className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
                         muted
                         onClick={() => {
-                          if (onRequestMedia) {
-                            onRequestMedia();
+                          if (threadId && authData) {
+                            dispatch(addMediaRequestEvent({
+                              threadId,
+                              userId: authData.email || 'User',
+                              mediaRef: media.blobRef
+                            }));
                             toast.info("Requesting this media from bot! 🎥");
                           }
                         }}
@@ -193,14 +224,18 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
                   <Image className="h-4 w-4 text-muted-foreground" />
                 </Button>
               )}
-              {hasMedia && onRequestMedia && (
+              {hasMedia && threadId && authData && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
                   disabled={isLoading}
                   onClick={() => {
-                    onRequestMedia();
+                    dispatch(addMediaRequestEvent({
+                      threadId,
+                      userId: authData.email || 'User',
+                      mediaRef: 'random'
+                    }));
                     toast.info("Requesting media from bot! 📸");
                   }}
                   title="Request random media from bot"
