@@ -240,12 +240,6 @@ export const ChatLayout = () => {
                 onRequestMedia={handleRequestMedia}
                 isLoading={isLoading}
                 hasMedia={hasMedia}
-                botMedia={botMedia.map(m => ({
-                  id: m.id || '',
-                  mediaId: m.mediaId,
-                  type: m.type,
-                  blobRef: m.blobRef
-                }))}
                 threadId={activeThreadId || undefined}
               />
             </div>

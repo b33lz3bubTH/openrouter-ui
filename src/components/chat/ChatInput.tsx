@@ -12,14 +12,12 @@ interface ChatInputProps {
   onRequestMedia?: () => void;
   isLoading: boolean;
   hasMedia?: boolean; // Whether the bot has media available
-  botMedia?: Array<{ id: string; mediaId: string; type: 'image' | 'video'; blobRef: string }>; // Bot's media gallery
   threadId?: string;
 }
 
-export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia = false, botMedia = [], threadId }: ChatInputProps) => {
+export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia = false, threadId }: ChatInputProps) => {
   const [message, setMessage] = useState('');
   const [pastedImage, setPastedImage] = useState<string | null>(null);
-  const [showMediaGallery, setShowMediaGallery] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toast = useSiriToast();
@@ -118,67 +116,6 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
             </Button>
           </div>
         )}
-
-        {/* Media Gallery */}
-        {showMediaGallery && botMedia.length > 0 && (
-          <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium">Bot's Media Gallery</h4>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => setShowMediaGallery(false)}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {botMedia.map((media) => (
-                <div key={media.mediaId} className="relative group">
-                  <div className="aspect-square rounded-lg overflow-hidden bg-muted">
-                    {media.type === 'image' ? (
-                      <img
-                        src={media.blobRef}
-                        alt="Bot media"
-                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => {
-                          if (threadId && authData) {
-                            dispatch(addMediaRequestEvent({
-                              threadId,
-                              userId: authData.email || 'User',
-                              mediaRef: media.blobRef
-                            }));
-                            toast.info("Requesting this media from bot! 📸");
-                          }
-                        }}
-                      />
-                    ) : (
-                      <video
-                        src={media.blobRef}
-                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                        muted
-                        onClick={() => {
-                          if (threadId && authData) {
-                            dispatch(addMediaRequestEvent({
-                              threadId,
-                              userId: authData.email || 'User',
-                              mediaRef: media.blobRef
-                            }));
-                            toast.info("Requesting this media from bot! 🎥");
-                          }
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Click on any media to request it from the bot
-            </p>
-          </div>
-        )}
         
         <div className="relative flex items-end space-x-3">
           {/* Input Area */}
@@ -212,18 +149,6 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
               >
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
               </Button>
-              {hasMedia && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  disabled={isLoading}
-                  onClick={() => setShowMediaGallery(!showMediaGallery)}
-                  title="Show bot's media gallery"
-                >
-                  <Image className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              )}
               {hasMedia && threadId && authData && (
                 <Button
                   variant="ghost"
@@ -238,9 +163,9 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
                     }));
                     toast.info("Requesting media from bot! 📸");
                   }}
-                  title="Request random media from bot"
+                  title="Request media from bot (round-robin)"
                 >
-                  <Send className="h-4 w-4 text-muted-foreground" />
+                  <Image className="h-4 w-4 text-muted-foreground" />
                 </Button>
               )}
             </div>
