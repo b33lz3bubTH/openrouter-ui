@@ -130,8 +130,9 @@ export const ChatLayout = () => {
                 {activeThread?.title || 'No Active Chat'}
               </span>
               {activeThread?.config && (
-                <span className="text-xs text-muted-foreground truncate">
-                  {activeThread.config.userName} ↔ {activeThread.config.botName}
+                <span className="text-xs text-muted-foreground truncate green">
+                  {/* {activeThread.config.userName} ↔ {activeThread.config.botName} */}
+                  Online
                 </span>
               )}
             </div>

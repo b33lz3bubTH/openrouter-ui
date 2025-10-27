@@ -299,9 +299,18 @@ export const useChat = () => {
       ]);
       
       console.log('📝 Backend response:', response);
+      console.log('📝 Response details:', {
+        responseLength: response?.length,
+        responseType: typeof response,
+        isEmpty: !response || response.trim() === '',
+        requestId,
+        loadingMessageId: loadingMessage.id
+      });
       
       // Only update if this request is still active (not cancelled)
       if (activeRequests.current.has(requestId)) {
+        console.log('📝 Request still active, updating thread with response');
+        
         // Update thread with assistant response
         setThreads(prev => {
           const updated = prev.map(thread => {
@@ -315,12 +324,23 @@ export const useChat = () => {
                 ),
                 updatedAt: new Date()
               };
-              console.log('📝 Updated thread with response:', newThread);
+              console.log('📝 Updated thread with response:', {
+                threadId: newThread.id,
+                messagesCount: newThread.messages.length,
+                loadingMessageUpdated: newThread.messages.find(m => m.id === loadingMessage.id),
+                allMessages: newThread.messages.map(m => ({
+                  id: m.id,
+                  role: m.role,
+                  content: m.content.substring(0, 50) + '...',
+                  isLoading: m.isLoading,
+                  error: m.error
+                }))
+              });
               return newThread;
             }
             return thread;
           });
-          console.log('📝 All threads after response update:', updated);
+          console.log('📝 All threads after response update:', updated.length);
           return updated;
         });
 

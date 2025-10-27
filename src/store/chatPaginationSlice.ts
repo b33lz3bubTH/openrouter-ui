@@ -36,7 +36,7 @@ const initialState: ChatPaginationState = {
 export const loadInitialMessages = createAsyncThunk(
   'chatPagination/loadInitialMessages',
   async (threadId: string) => {
-    const recentMessages = await ChatService.getRecentMessages(threadId, 10);
+    const recentMessages = await ChatService.getRecentMessages(threadId, 20);
     
     const filteredMessages = recentMessages
       .filter((msg) => msg.content.trim() !== '')
@@ -126,6 +126,13 @@ const chatPaginationSlice = createSlice({
         message.error = error;
         message.isLoading = isLoading;
       }
+    },
+    updateMessageDeliveredState: (state, action: PayloadAction<{ messageId: string; isDelivered: boolean }>) => {
+      const { messageId, isDelivered } = action.payload;
+      const message = state.displayedMessages.find(msg => msg.id === messageId);
+      if (message) {
+        message.isDelivered = isDelivered;
+      }
     }
   },
   extraReducers: (builder) => {
@@ -190,18 +197,61 @@ const chatPaginationSlice = createSlice({
       .addCase(addNewMessages.fulfilled, (state, action) => {
         const { messages, threadId } = action.payload;
         
+        console.log('📝 Redux: Adding new messages:', {
+          threadId,
+          currentThreadId: state.currentThreadId,
+          messagesCount: messages.length,
+          messages: messages.map(msg => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content.substring(0, 50) + '...',
+            isLoading: msg.isLoading,
+            error: msg.error
+          }))
+        });
+        
         if (state.currentThreadId === threadId) {
           const existingIds = new Set(state.displayedMessages.map(msg => msg.id));
           const newMessages = messages.filter(msg => !existingIds.has(msg.id));
+          const updatedMessages = messages.filter(msg => existingIds.has(msg.id));
           
-          if (newMessages.length > 0) {
-            // Append new messages to the end
-            state.displayedMessages = [...state.displayedMessages, ...newMessages];
+          console.log('📝 Redux: Processing messages:', {
+            existingCount: state.displayedMessages.length,
+            newCount: newMessages.length,
+            updatedCount: updatedMessages.length,
+            newMessageIds: newMessages.map(m => m.id),
+            updatedMessageIds: updatedMessages.map(m => m.id)
+          });
+          
+          // Update existing messages
+          if (updatedMessages.length > 0) {
+            state.displayedMessages = state.displayedMessages.map(existingMsg => {
+              const updatedMsg = updatedMessages.find(msg => msg.id === existingMsg.id);
+              if (updatedMsg) {
+                console.log('📝 Redux: Updating existing message:', {
+                  id: existingMsg.id,
+                  oldContent: existingMsg.content.substring(0, 50) + '...',
+                  newContent: updatedMsg.content.substring(0, 50) + '...',
+                  oldLoading: existingMsg.isLoading,
+                  newLoading: updatedMsg.isLoading
+                });
+                return { ...existingMsg, ...updatedMsg };
+              }
+              return existingMsg;
+            });
           }
+          
+          // Add new messages
+          if (newMessages.length > 0) {
+            state.displayedMessages = [...state.displayedMessages, ...newMessages];
+            console.log('📝 Redux: Added new messages');
+          }
+          
+          console.log('📝 Redux: Final displayedMessages count:', state.displayedMessages.length);
         }
       });
   },
 });
 
-export const { resetPagination, setCurrentThread, updateMessageErrorState } = chatPaginationSlice.actions;
+export const { resetPagination, setCurrentThread, updateMessageErrorState, updateMessageDeliveredState } = chatPaginationSlice.actions;
 export default chatPaginationSlice.reducer;

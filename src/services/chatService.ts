@@ -182,7 +182,15 @@ export class ChatService {
       const data = await response.json();
       console.log('✅ OPENROUTER RESPONSE:', data);
       
-      return data.choices?.[0]?.message?.content || 'No response';
+      const extractedContent = data.choices?.[0]?.message?.content || 'No response';
+      console.log('✅ EXTRACTED CONTENT:', {
+        hasContent: !!extractedContent,
+        contentLength: extractedContent.length,
+        contentPreview: extractedContent.substring(0, 100) + '...',
+        isNoResponse: extractedContent === 'No response'
+      });
+      
+      return extractedContent;
     } catch (error) {
       console.error('❌ Error calling OpenRouter:', error);
       throw error;

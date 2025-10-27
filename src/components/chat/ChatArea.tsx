@@ -11,7 +11,8 @@ import {
   addNewMessages, 
   resetPagination, 
   setCurrentThread,
-  updateMessageErrorState 
+  updateMessageErrorState,
+  updateMessageDeliveredState 
 } from '@/store/chatPaginationSlice';
 
 interface ChatAreaProps {
@@ -72,19 +73,46 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   useEffect(() => {
     if (activeThread?.messages && activeThread.messages.length > 0 && activeThread.id === currentThreadId) {
       const latestMessages = activeThread.messages.slice(-5);
+      
+      console.log('📝 ChatArea: Processing new messages from activeThread:', {
+        totalMessages: activeThread.messages.length,
+        latestMessages: latestMessages.map(msg => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content.substring(0, 50) + '...',
+          isLoading: msg.isLoading,
+          error: msg.error,
+          isDelivered: msg.isDelivered
+        })),
+        currentReduxMessages: displayedMessages.map(msg => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content.substring(0, 50) + '...'
+        }))
+      });
+      
       dispatch(addNewMessages({ messages: latestMessages, threadId: activeThread.id }));
     }
   }, [activeThread?.messages, activeThread?.id, currentThreadId, dispatch]);
 
-  // Sync error states from activeThread to Redux
+  // Sync message states from activeThread to Redux
   useEffect(() => {
     if (activeThread?.messages && activeThread.id === currentThreadId) {
       activeThread.messages.forEach(msg => {
+        // Sync error and loading states
         if (msg.error !== undefined || msg.isLoading !== undefined) {
           dispatch(updateMessageErrorState({
             messageId: msg.id,
             error: msg.error || false,
             isLoading: msg.isLoading || false
+          }));
+        }
+        
+        // Sync delivered state
+        if (msg.isDelivered !== undefined) {
+          dispatch(updateMessageDeliveredState({
+            messageId: msg.id,
+            isDelivered: msg.isDelivered
           }));
         }
       });
@@ -174,7 +202,19 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
         )}
 
 
-        {displayedMessages.map((message) => (
+        {displayedMessages.map((message) => {
+          console.log('📝 ChatArea: Rendering message:', {
+            id: message.id,
+            role: message.role,
+            contentLength: message.content.length,
+            contentPreview: message.content.substring(0, 50) + '...',
+            isLoading: message.isLoading,
+            error: message.error,
+            isDelivered: message.isDelivered,
+            willRender: message.role === 'user' || (!message.error && (message.isLoading || message.content.trim() !== ''))
+          });
+          
+          return (
             <div key={message.id} className="space-y-4">
               {message.role === 'user' ? (
                 // User Message
@@ -201,8 +241,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                     </div>
                   </div>
                 </div>
-              ) : (
-                // Assistant Message
+              ) : !message.error ? (
+                // Assistant Message - only show if no error
                 <div className="flex justify-start">
                   <div className="flex items-start space-x-3 max-w-[80%]">
                     <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center flex-shrink-0">
@@ -212,7 +252,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                       </div>
                     </div>
                     <div className="bg-card border rounded-2xl px-4 py-3 min-w-[100px]">
-                      {message.isLoading && !message.error ? (
+                      {message.isLoading ? (
                         <div className="flex items-center space-x-2 text-muted-foreground">
                           <div className="flex space-x-1">
                             <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
@@ -221,7 +261,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                           </div>
                           <span className="text-sm">{activeThread?.config?.botName} is typing...</span>
                         </div>
-                      ) : !message.error && message.content.trim() !== '' ? (
+                      ) : message.content.trim() !== '' ? (
                         <p className="text-card-foreground text-sm leading-relaxed">
                           {message.content}
                         </p>
@@ -229,9 +269,10 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
-        ))}
+          );
+        })}
         
         {/* Invisible element to scroll to */}
         <div ref={messagesEndRef} />
