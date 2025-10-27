@@ -26,7 +26,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch<AppDispatch>();
-  const [mediaMap, setMediaMap] = useState<Map<string, string>>(new Map());
+  const [mediaMap, setMediaMap] = useState<Map<string, { blobRef: string; mimeType: string }>>(new Map());
   
   const {
     displayedMessages: reduxMessages,
@@ -159,7 +159,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
       
       if (messagesNeedingMedia.length === 0) return;
       
-      const newMediaMap = new Map<string, string>();
+      const newMediaMap = new Map<string, { blobRef: string; mimeType: string }>();
       
       for (const message of messagesNeedingMedia) {
         try {
@@ -177,8 +177,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
               // Generate blob URL from stored ArrayBuffer
               const blob = new Blob([media.blobData], { type: media.mimeType });
               const blobRef = URL.createObjectURL(blob);
-              newMediaMap.set(message.id, blobRef);
-              console.log('📸 Created blob URL for message:', { messageId: message.id, mediaId, blobRef });
+              newMediaMap.set(message.id, { blobRef, mimeType: media.mimeType });
+              console.log('📸 Created blob URL for message:', { messageId: message.id, mediaId, blobRef, mimeType: media.mimeType });
             } else {
               console.warn('📸 Media not found in IndexedDB:', { mediaId, messageId: message.id });
             }
@@ -189,7 +189,13 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
       }
       
       if (newMediaMap.size > 0) {
-        setMediaMap(prev => new Map([...prev, ...newMediaMap]));
+        setMediaMap(prev => {
+          const updatedMap = new Map(prev);
+          newMediaMap.forEach((value, key) => {
+            updatedMap.set(key, value);
+          });
+          return updatedMap;
+        });
       }
     };
     
@@ -199,7 +205,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   // Cleanup blob URLs when component unmounts
   useEffect(() => {
     return () => {
-      mediaMap.forEach(url => URL.revokeObjectURL(url));
+      mediaMap.forEach(media => URL.revokeObjectURL(media.blobRef));
     };
   }, []);
 
@@ -287,7 +293,16 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                         const hasMediaId = mediaIdPattern.test(message.content);
                         return hasMediaId && mediaMap.has(message.id) && (
                           <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
-                            <img src={mediaMap.get(message.id)} alt="Media" className="w-full h-auto" />
+                            {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
+                              <video 
+                                src={mediaMap.get(message.id)?.blobRef} 
+                                controls 
+                                className="w-full h-auto" 
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img src={mediaMap.get(message.id)?.blobRef} alt="Media" className="w-full h-auto" />
+                            )}
                           </div>
                         );
                       })()}
@@ -332,11 +347,20 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                             const hasMediaId = mediaIdPattern.test(message.content);
                             return hasMediaId && mediaMap.has(message.id) && (
                               <div className="mb-3 rounded-lg overflow-hidden max-w-sm">
-                                <img 
-                                  src={mediaMap.get(message.id)} 
-                                  alt="Bot media" 
-                                  className="w-full h-auto rounded-lg" 
-                                />
+                                {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
+                                  <video 
+                                    src={mediaMap.get(message.id)?.blobRef} 
+                                    controls 
+                                    className="w-full h-auto rounded-lg" 
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <img 
+                                    src={mediaMap.get(message.id)?.blobRef} 
+                                    alt="Bot media" 
+                                    className="w-full h-auto rounded-lg" 
+                                  />
+                                )}
                               </div>
                             );
                           })()}

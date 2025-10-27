@@ -59,7 +59,7 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label>Media Gallery (Optional)</Label>
+        {/* <Label>Media Gallery (Optional)</Label> */}
         <p className="text-sm text-muted-foreground">
           Upload images or videos for this bot. The first image will be used as the profile picture.
         </p>
