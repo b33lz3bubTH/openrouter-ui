@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,14 +12,44 @@ const Settings = () => {
   const { authData, login } = useAuth();
   const { toast } = useToast();
 
-  const [backend, setBackend] = useState<'custom' | 'openrouter'>(authData?.backend || 'custom');
-  const [email, setEmail] = useState(authData?.email || '');
-  const [genericPrompt, setGenericPrompt] = useState(authData?.genericPrompt || '');
-  const [apiUrl, setApiUrl] = useState(authData?.apiUrl || '');
-  const [modelName, setModelName] = useState(authData?.modelName || '');
-  const [apiKey, setApiKey] = useState(authData?.apiKey || '');
+  const [backend, setBackend] = useState<'custom' | 'openrouter'>('custom');
+  const [email, setEmail] = useState('');
+  const [genericPrompt, setGenericPrompt] = useState('');
+  const [apiUrl, setApiUrl] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [apiKey, setApiKey] = useState('');
+
+  // Update form values when authData changes
+  useEffect(() => {
+    if (authData) {
+      setBackend(authData.backend || 'custom');
+      setEmail(authData.email || '');
+      setGenericPrompt(authData.genericPrompt || '');
+      setApiUrl(authData.apiUrl || '');
+      setModelName(authData.modelName || '');
+      setApiKey(authData.apiKey || '');
+      
+      console.log('📝 Settings: Loaded auth data:', {
+        backend: authData.backend,
+        email: authData.email,
+        apiUrl: authData.apiUrl,
+        modelName: authData.modelName,
+        hasApiKey: !!authData.apiKey,
+        hasGenericPrompt: !!authData.genericPrompt
+      });
+    }
+  }, [authData]);
 
   const handleSave = () => {
+    console.log('📝 Settings: Saving configuration:', {
+      backend,
+      email: backend === 'custom' ? email : undefined,
+      apiUrl: backend === 'custom' ? apiUrl : undefined,
+      genericPrompt: backend === 'custom' ? genericPrompt : undefined,
+      modelName: backend === 'openrouter' ? modelName : undefined,
+      apiKey: backend === 'openrouter' ? apiKey : undefined
+    });
+
     if (backend === 'custom') {
       login({
         backend: 'custom',
@@ -55,6 +85,20 @@ const Settings = () => {
         </Button>
 
         <h1 className="text-3xl font-bold mb-8">Settings</h1>
+        
+        {authData && (
+          <div className="mb-6 p-4 bg-muted/50 rounded-lg border">
+            <p className="text-sm text-muted-foreground">
+              Current configuration: <span className="font-medium">{authData.backend === 'custom' ? 'Custom Backend' : 'OpenRouter'}</span>
+              {authData.backend === 'custom' && authData.apiUrl && (
+                <span className="ml-2 text-xs">({authData.apiUrl})</span>
+              )}
+              {authData.backend === 'openrouter' && authData.modelName && (
+                <span className="ml-2 text-xs">({authData.modelName})</span>
+              )}
+            </p>
+          </div>
+        )}
 
         <div className="space-y-6">
           <div className="space-y-2">

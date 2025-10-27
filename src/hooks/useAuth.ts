@@ -26,12 +26,24 @@ export const useAuth = () => {
         if (parsed.email && !parsed.name) {
           parsed.name = ChatService.extractUserName(parsed.email);
         }
+        
+        console.log('📝 Auth: Loaded configuration from session storage:', {
+          backend: parsed.backend,
+          email: parsed.email,
+          apiUrl: parsed.apiUrl,
+          modelName: parsed.modelName,
+          hasApiKey: !!parsed.apiKey,
+          hasGenericPrompt: !!parsed.genericPrompt
+        });
+        
         setAuthData(parsed);
         setIsAuthenticated(true);
       } catch (error) {
         console.error('Error loading auth data:', error);
         sessionStorage.removeItem(AUTH_KEY);
       }
+    } else {
+      console.log('📝 Auth: No stored configuration found');
     }
   }, []);
 
@@ -55,6 +67,16 @@ export const useAuth = () => {
         apiKey: config.apiKey
       })
     };
+    
+    console.log('📝 Auth: Saving configuration to session storage:', {
+      backend: data.backend,
+      email: data.email,
+      apiUrl: data.apiUrl,
+      modelName: data.modelName,
+      hasApiKey: !!data.apiKey,
+      hasGenericPrompt: !!data.genericPrompt
+    });
+    
     sessionStorage.setItem(AUTH_KEY, JSON.stringify(data));
     setAuthData(data);
     setIsAuthenticated(true);
