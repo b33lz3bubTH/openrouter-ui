@@ -44,7 +44,8 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
       console.error('Error uploading media:', error);
       onUploadComplete([{
         success: false,
-        error: error instanceof Error ? error.message : 'Upload failed'
+        error: error instanceof Error ? error.message : 'Upload failed',
+        type: files[0].type.startsWith('image/') ? 'image' as const : 'video' as const
       }]);
     } finally {
       setIsUploading(false);

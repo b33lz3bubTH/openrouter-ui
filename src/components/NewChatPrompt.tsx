@@ -77,12 +77,15 @@ export const NewChatPrompt = ({ onSubmit, onCancel }: NewChatPromptProps) => {
                 botId={tempBotId}
                 onUploadComplete={handleMediaUploadComplete}
                 onRemoveMedia={handleRemoveMedia}
-                existingMedia={uploadedMedia.filter(m => m.success).map(m => ({
+                existingMedia={uploadedMedia.filter(m => m.success).map(m => {
+                  console.log(`media result:`, m);
+                  return {
                   id: m.mediaId!,
                   mediaId: m.mediaId!,
-                  type: 'image' as const, // We'll determine this properly in the service
+                  type: m.type,
                   blobRef: m.blobRef || ''
-                }))}
+                }
+              })}
               />
             </div>
             

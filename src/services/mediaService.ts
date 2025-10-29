@@ -17,7 +17,8 @@ export class MediaService {
         if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
           results.push({
             success: false,
-            error: `Unsupported file type: ${file.type}`
+            error: `Unsupported file type: ${file.type}`,
+            type: file.type.startsWith('image/') ? 'image' as const : 'video' as const
           });
           continue;
         }
@@ -60,6 +61,7 @@ export class MediaService {
           success: true,
           mediaId,
           blobRef,
+          type: file.type.startsWith('image/') ? 'image' as const : 'video' as const,
           optimizedDimensions: optimizedBlob.dimensions
         });
         
@@ -74,7 +76,8 @@ export class MediaService {
         console.error('❌ Error uploading media:', error);
         results.push({
           success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: error instanceof Error ? error.message : 'Unknown error',
+          type: file.type.startsWith('image/') ? 'image' as const : 'video' as const
         });
       }
     }
@@ -175,7 +178,8 @@ export class MediaService {
         ...m,
         blobRef,
         createdAt: new Date(m.createdAt),
-        lastUsedAt: new Date(m.lastUsedAt)
+        lastUsedAt: new Date(m.lastUsedAt),
+        type: m.type
       };
     });
   }
