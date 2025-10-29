@@ -5,24 +5,39 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NewThreadPrompt } from '@/types/chat';
+import { MediaUpload } from '@/components/media/MediaUpload';
+import { MediaUploadResult } from '@/types/chat';
 
 interface NewChatPromptProps {
-  onSubmit: (prompt: NewThreadPrompt) => void;
+  onSubmit: (prompt: NewThreadPrompt & { uploadedMedia?: MediaUploadResult[] }) => void;
   onCancel: () => void;
 }
 
 export const NewChatPrompt = ({ onSubmit, onCancel }: NewChatPromptProps) => {
   const [botName, setBotName] = useState('');
   const [rules, setRules] = useState('');
+  const [uploadedMedia, setUploadedMedia] = useState<MediaUploadResult[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [tempBotId] = useState(`temp_${Date.now()}`); // Temporary ID for media upload
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (botName.trim() && rules.trim()) {
       onSubmit({
         botName: botName.trim(),
-        rules: rules.trim()
+        rules: rules.trim(),
+        uploadedMedia: uploadedMedia
       });
     }
+  };
+
+  const handleMediaUploadComplete = (results: MediaUploadResult[]) => {
+    setUploadedMedia(prev => [...prev, ...results.filter(r => r.success)]);
+    setIsUploading(false);
+  };
+
+  const handleRemoveMedia = (mediaId: string) => {
+    setUploadedMedia(prev => prev.filter(m => m.mediaId !== mediaId));
   };
 
   return (
@@ -53,6 +68,21 @@ export const NewChatPrompt = ({ onSubmit, onCancel }: NewChatPromptProps) => {
                 placeholder="Enter roleplay instructions (e.g., 'you're a role playing bot, you will chat like this is a whatsapp message.')"
                 className="min-h-[100px]"
                 required
+              />
+            </div>
+
+            {/* Media Upload Section */}
+            <div className="space-y-2">
+              <MediaUpload
+                botId={tempBotId}
+                onUploadComplete={handleMediaUploadComplete}
+                onRemoveMedia={handleRemoveMedia}
+                existingMedia={uploadedMedia.filter(m => m.success).map(m => ({
+                  id: m.mediaId!,
+                  mediaId: m.mediaId!,
+                  type: 'image' as const, // We'll determine this properly in the service
+                  blobRef: m.blobRef || ''
+                }))}
               />
             </div>
             

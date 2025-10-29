@@ -1,8 +1,9 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatThread, Message } from '@/types/chat';
 import { User, Loader2, AlertCircle, ChevronUp, UserCog2Icon, UserIcon, Bot } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import db from '@/services/chatDatabase';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, AppDispatch } from '@/store/store';
 import { 
@@ -25,6 +26,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch<AppDispatch>();
+  const [mediaMap, setMediaMap] = useState<Map<string, { blobRef: string; mimeType: string }>>(new Map());
   
   const {
     displayedMessages: reduxMessages,
@@ -37,7 +39,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   // Convert Redux messages back to proper Message format for rendering
   const displayedMessages: Message[] = reduxMessages.map(msg => ({
     ...msg,
-    timestamp: new Date(msg.timestamp) // Convert number back to Date
+    timestamp: new Date(msg.timestamp), // Convert number back to Date
+    mediaRef: msg.mediaRef // Ensure mediaRef is included
   }));
 
   console.log('📝 ChatArea Redux state:', { 
@@ -46,7 +49,8 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     displayedMessagesCount: displayedMessages.length,
     hasMoreMessages,
     isLoadingMore,
-    isInitialLoad
+    isInitialLoad,
+    messagesWithMedia: displayedMessages.filter(msg => msg.mediaRef).map(msg => ({ id: msg.id, mediaRef: msg.mediaRef }))
   });
 
   // Handle load more messages
@@ -141,7 +145,69 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     }
   }, [activeThread?.id, currentThreadId, dispatch]);
 
+  // Load media for messages with Media ID patterns
+  useEffect(() => {
+    const loadMedia = async () => {
+      // Extract Media IDs from message content using regex
+      const messagesNeedingMedia = displayedMessages.filter(msg => {
+        if (mediaMap.has(msg.id)) return false; // Already loaded
+        
+        // Check if message contains Media ID pattern
+        const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+        return mediaIdPattern.test(msg.content);
+      });
+      
+      if (messagesNeedingMedia.length === 0) return;
+      
+      const newMediaMap = new Map<string, { blobRef: string; mimeType: string }>();
+      
+      for (const message of messagesNeedingMedia) {
+        try {
+          // Extract Media ID from message content
+          const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+          const match = message.content.match(mediaIdPattern);
+          
+          if (match && match[1]) {
+            const mediaId = match[1].trim();
+            console.log('📸 Extracted Media ID from message:', { messageId: message.id, mediaId, content: message.content });
+            
+            // Get media from IndexedDB using extracted Media ID
+            const media = await db.botMedia.where('mediaId').equals(mediaId).first();
+            if (media) {
+              // Generate blob URL from stored ArrayBuffer
+              const blob = new Blob([media.blobData], { type: media.mimeType });
+              const blobRef = URL.createObjectURL(blob);
+              newMediaMap.set(message.id, { blobRef, mimeType: media.mimeType });
+              console.log('📸 Created blob URL for message:', { messageId: message.id, mediaId, blobRef, mimeType: media.mimeType });
+            } else {
+              console.warn('📸 Media not found in IndexedDB:', { mediaId, messageId: message.id });
+            }
+          }
+        } catch (error) {
+          console.error('Error loading media:', error);
+        }
+      }
+      
+      if (newMediaMap.size > 0) {
+        setMediaMap(prev => {
+          const updatedMap = new Map(prev);
+          newMediaMap.forEach((value, key) => {
+            updatedMap.set(key, value);
+          });
+          return updatedMap;
+        });
+      }
+    };
+    
+    loadMedia();
+  }, [displayedMessages]);
 
+  // Cleanup blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      mediaMap.forEach(media => URL.revokeObjectURL(media.blobRef));
+    };
+  }, []);
 
   if (!activeThread) {
     return (
@@ -222,13 +288,28 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                 <div className="flex justify-end">
                   <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
                     <div className={`rounded-2xl px-4 py-3 ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
-                      <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
-                        {message.content}
-                      </p>
-                      {message.hasImage && (
-                        <div className="mt-2 text-xs text-muted-foreground/70">
-                          📎 Image attached
-                        </div>
+                      {(() => {
+                        const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+                        const hasMediaId = mediaIdPattern.test(message.content);
+                        return hasMediaId && mediaMap.has(message.id) && (
+                          <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
+                            {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
+                              <video 
+                                src={mediaMap.get(message.id)?.blobRef} 
+                                controls 
+                                className="w-full h-auto" 
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img src={mediaMap.get(message.id)?.blobRef} alt="Media" className="w-full h-auto" />
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {message.content && (
+                        <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
+                          {message.content}
+                        </p>
                       )}
                       {message.isDelivered === false && (
                         <div className="mt-2 flex items-center text-xs text-destructive">
@@ -259,11 +340,37 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                           </div>
                           <span className="text-sm">{activeThread?.config?.botName} is typing...</span>
                         </div>
-                      ) : message.content.trim() !== '' ? (
-                        <p className="text-card-foreground text-sm leading-relaxed">
-                          {message.content}
-                        </p>
-                      ) : null}
+                      ) : (
+                        <>
+                          {(() => {
+                            const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+                            const hasMediaId = mediaIdPattern.test(message.content);
+                            return hasMediaId && mediaMap.has(message.id) && (
+                              <div className="mb-3 rounded-lg overflow-hidden max-w-sm">
+                                {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
+                                  <video 
+                                    src={mediaMap.get(message.id)?.blobRef} 
+                                    controls 
+                                    className="w-full h-auto rounded-lg" 
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <img 
+                                    src={mediaMap.get(message.id)?.blobRef} 
+                                    alt="Bot media" 
+                                    className="w-full h-auto rounded-lg" 
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {message.content.trim() !== '' && (
+                            <p className="text-card-foreground text-sm leading-relaxed">
+                              {message.content}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

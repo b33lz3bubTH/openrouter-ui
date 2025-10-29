@@ -12,6 +12,7 @@ interface ReduxMessage {
   hasImage?: boolean;
   isDelivered?: boolean;
   error?: boolean;
+  mediaRef?: string; // Add mediaRef support
 }
 
 interface ChatPaginationState {
@@ -47,6 +48,7 @@ export const loadInitialMessages = createAsyncThunk(
         timestamp: msg.timestamp, // Keep as number for Redux serialization
         sequence: msg.sequence,
         isDelivered: msg.isDelivered !== false,
+        mediaRef: msg.mediaRef, // Include mediaRef
       }));
 
     return {
@@ -75,6 +77,7 @@ export const loadMoreMessages = createAsyncThunk(
         timestamp: msg.timestamp, // Keep as number for Redux serialization
         sequence: msg.sequence,
         isDelivered: msg.isDelivered !== false,
+        mediaRef: msg.mediaRef, // Include mediaRef
       }));
 
     console.log('📝 Redux: Filtered older messages', { 

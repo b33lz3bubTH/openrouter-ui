@@ -40,6 +40,23 @@ function resolveApiBaseUrl(): string {
 }
 
 export class ChatService {
+  // Helper function to check if message contains media-related content
+  private static isMediaMessage(content: string): boolean {
+    if (!content || content.trim() === '') return true;
+    
+    // Check for media request patterns
+    if (content.includes('<request img>') || content.includes('<request media>')) {
+      return true;
+    }
+    
+    // Check for Media ID patterns using regex
+    const mediaIdPattern = /\[Media ID:\s*[^\]]+\]/i;
+    if (mediaIdPattern.test(content)) {
+      return true;
+    }
+    
+    return false;
+  }
   // Smart message trimming to keep total chars under limit
   private static trimMessages(messages: Message[], maxChars: number = 3000): Message[] {
     // Calculate total chars
@@ -205,8 +222,10 @@ export class ChatService {
       // Generate optimized context (roleplay rules + last 5 messages, max 1200 words)
       const contextString = await this.generateContext(conversationId, rules, botName);
       
-      // Get recent messages for context (last 5 messages)
-      const recentMessages = messages.slice(-5);
+      // Get recent messages for context (last 5 messages), filtering out media requests
+      const recentMessages = messages
+        .filter(msg => !this.isMediaMessage(msg.content))
+        .slice(-5);
       
       // Convert recent messages to backend context format
       const context: BackendContextMessage[] = [];
@@ -282,7 +301,7 @@ export class ChatService {
   }
 
   // Save a message to the Dexie database with a specific sequence number
-  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number, isDelivered?: boolean): Promise<void> {
+  static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number, isDelivered?: boolean, mediaRef?: string): Promise<void> {
     // If sequence is provided, use it; otherwise calculate it
     let finalSequence = sequence;
     if (finalSequence === undefined) {
@@ -290,8 +309,8 @@ export class ChatService {
       finalSequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
     }
 
-    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence, isDelivered });
-    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence, isDelivered });
+    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence, isDelivered, mediaRef });
+    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence, isDelivered, mediaRef });
   }
 
   // Fix sequences for all messages in a conversation
@@ -312,7 +331,7 @@ export class ChatService {
   }
 
   // Retrieve messages for a specific conversation
-  static async getMessagesByConversation(conversationId: string): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }[]> {
+  static async getMessagesByConversation(conversationId: string): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
     Logger.log('Retrieving messages for conversation', { conversationId });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
 
@@ -324,7 +343,7 @@ export class ChatService {
   }
 
   // Get recent messages (reverse pagination - newest first)
-  static async getRecentMessages(conversationId: string, limit: number = 11): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }[]> {
+  static async getRecentMessages(conversationId: string, limit: number = 11): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
     Logger.log('Retrieving recent messages', { conversationId, limit });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
@@ -342,7 +361,7 @@ export class ChatService {
   }
 
   // Get older messages (for pagination when scrolling up)
-  static async getOlderMessages(conversationId: string, beforeSequence: number, limit: number = 10): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean }[]> {
+  static async getOlderMessages(conversationId: string, beforeSequence: number, limit: number = 10): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
     Logger.log('Retrieving older messages', { conversationId, beforeSequence, limit });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
@@ -374,8 +393,10 @@ export class ChatService {
     // Sort messages by sequence in ascending order
     messages.sort((a, b) => a.sequence - b.sequence);
 
-    // Filter out undelivered messages and take last 5 messages
-    const deliveredMessages = messages.filter(msg => msg.isDelivered !== false);
+    // Filter out undelivered messages and media-only messages, take last 5 messages
+    const deliveredMessages = messages.filter(msg => 
+      msg.isDelivered !== false && !this.isMediaMessage(msg.content)
+    );
     const recentMessages = deliveredMessages.slice(-5);
     
     console.log('📝 Context: Building context from messages:', {

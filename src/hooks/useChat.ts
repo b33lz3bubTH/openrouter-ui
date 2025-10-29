@@ -1,9 +1,31 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ChatThread, Message, ThreadConfig, NewThreadPrompt } from '@/types/chat';
+import { ChatThread, Message, ThreadConfig, NewThreadPrompt, MediaUploadResult } from '@/types/chat';
 import { ChatService } from '@/services/chatService';
 import { useAuth } from '@/hooks/useAuth';
 import { Logger } from '@/utils/logger';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState } from '@/store/store';
+import { markEventProcessed, setProcessingEvent } from '@/store/chatEventSlice';
+import { MediaService } from '@/services/mediaService';
+
+// Helper function to check if message contains media-related content
+const isMediaMessage = (content: string): boolean => {
+  if (!content || content.trim() === '') return true;
+  
+  // Check for media request patterns
+  if (content.includes('<request img>') || content.includes('<request media>')) {
+    return true;
+  }
+  
+  // Check for Media ID patterns using regex
+  const mediaIdPattern = /\[Media ID:\s*[^\]]+\]/i;
+  if (mediaIdPattern.test(content)) {
+    return true;
+  }
+  
+  return false;
+};
 
 const STORAGE_KEY = 'chat-threads';
 
@@ -36,6 +58,7 @@ const loadThreads = async (): Promise<ChatThread[]> => {
             timestamp: new Date(msg.timestamp),
             sequence: msg.sequence, // Ensure sequence is included
             isDelivered: msg.isDelivered !== false, // Default to true if not specified
+            mediaRef: msg.mediaRef, // Include mediaRef for persistence
           }))
           .sort((a, b) => (a.sequence || 0) - (b.sequence || 0)), // Sort by sequence
         createdAt: new Date(conversation.createdAt),
@@ -112,6 +135,8 @@ const clearThreads = async (): Promise<void> => {
 
 export const useChat = () => {
   const { authData } = useAuth();
+  const dispatch = useDispatch();
+  const chatEvents = useSelector((state: RootState) => state.chatEvents);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -131,6 +156,203 @@ export const useChat = () => {
     saveThreads(threads);
   }, [threads]);
 
+  // Process Redux events
+  useEffect(() => {
+    const processEvents = async () => {
+      const pendingEvents = chatEvents.pendingEvents.filter(event => 
+        event.threadId === activeThreadId && 
+        event.id !== chatEvents.processingEventId
+      );
+
+      for (const event of pendingEvents) {
+        dispatch(setProcessingEvent(event.id));
+        
+        try {
+          await processChatEvent(event);
+          dispatch(markEventProcessed(event.id));
+        } catch (error) {
+          console.error('Error processing chat event:', error);
+          dispatch(markEventProcessed(event.id));
+        }
+      }
+    };
+
+    if (activeThreadId && chatEvents.pendingEvents.length > 0) {
+      processEvents();
+    }
+  }, [chatEvents.pendingEvents, activeThreadId, dispatch, chatEvents.processingEventId]);
+
+  // Process individual chat events
+  const processChatEvent = useCallback(async (event: any) => {
+    if (!authData || !activeThreadId) return;
+
+    const currentThread = threads.find(t => t.id === activeThreadId);
+    if (!currentThread || !currentThread.config) return;
+
+    const lastMessage = currentThread.messages[currentThread.messages.length - 1];
+    const nextSequence = lastMessage?.sequence ? lastMessage.sequence + 1 : 1;
+
+    // Create user message based on event type
+    const userMessage: Message = {
+      id: uuidv4(),
+      content: event.content,
+      role: 'user',
+      timestamp: new Date(),
+      sequence: nextSequence,
+      isDelivered: true,
+      eventType: event.type,
+      mediaRef: event.metadata?.mediaRef || event.metadata?.imageData
+    };
+
+    // Create loading assistant message
+    const loadingMessage: Message = {
+      id: uuidv4(),
+      content: '',
+      role: 'assistant',
+      timestamp: new Date(),
+      sequence: nextSequence + 1,
+      isLoading: true,
+      eventType: event.type
+    };
+
+    console.log('📸 Created messages:', { 
+      userMessage: { id: userMessage.id, content: userMessage.content, mediaRef: userMessage.mediaRef },
+      loadingMessage: { id: loadingMessage.id, mediaRef: loadingMessage.mediaRef }
+    });
+
+    // Update thread with user message and loading state
+    setThreads(prev => prev.map(thread => 
+      thread.id === activeThreadId 
+        ? { ...thread, messages: [...thread.messages, userMessage, loadingMessage], updatedAt: new Date() }
+        : thread
+    ));
+
+    // Set loading state
+    setIsLoading(true);
+
+    try {
+      let response = '';
+
+      if (event.type === 'image_request') {
+        // Handle image request - show placeholder response
+        response = 'I see you\'ve shared an image with me. Let me analyze it and provide you with relevant information or assistance.';
+      } else if (event.type === 'media_request') {
+        // Handle media request - get next media from bot
+        try {
+          const nextMedia = await MediaService.getNextMedia(activeThreadId);
+          if (nextMedia) {
+            response = `Here's the media you requested: [Media ID: ${nextMedia.mediaId}]`;
+            loadingMessage.mediaRef = nextMedia.mediaId;
+            console.log('📸 Media request processed:', { mediaId: nextMedia.mediaId, messageId: loadingMessage.id });
+          } else {
+            response = 'Sorry, I don\'t have any media to share at the moment.';
+          }
+        } catch (error) {
+          console.error('Error getting roleplayRules and next media:', error);
+          response = 'Sorry, I encountered an error while retrieving media.';
+        }
+      } else if (event.type === 'text') {
+        // Handle regular text message
+        const roleplayRules = currentThread.config.rules;
+        const context = await ChatService.generateContext(activeThreadId, roleplayRules);
+        
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
+        });
+
+        response = await Promise.race([
+          ChatService.sendMessage(
+            currentThread.messages.filter(msg => 
+              !msg.isLoading && !isMediaMessage(msg.content)
+            ),
+            event.content,
+            currentThread.config.userName,
+            currentThread.config.botName,
+            currentThread.config.rules,
+            activeThreadId,
+            event.metadata?.imageData
+          ),
+          timeoutPromise
+        ]);
+      }
+
+      // Update thread with assistant response
+      setThreads(prev => prev.map(thread => 
+        thread.id === activeThreadId 
+          ? {
+              ...thread,
+              messages: thread.messages.map(msg => 
+                msg.id === loadingMessage.id 
+                  ? { ...msg, content: response, isLoading: false }
+                  : msg
+              ),
+              updatedAt: new Date()
+            }
+          : thread
+      ));
+
+      // Save messages to database
+      await ChatService.saveMessage(
+        activeThreadId,
+        userMessage.id,
+        userMessage.content,
+        userMessage.role,
+        userMessage.timestamp.getTime(),
+        userMessage.sequence,
+        true,
+        userMessage.mediaRef
+      );
+
+      if (response && response.trim() !== '') {
+        await ChatService.saveMessage(
+          activeThreadId,
+          loadingMessage.id,
+          response,
+          loadingMessage.role,
+          loadingMessage.timestamp.getTime(),
+          loadingMessage.sequence,
+          true,
+          loadingMessage.mediaRef
+        );
+        console.log('📸 Saved assistant message with mediaRef:', { messageId: loadingMessage.id, mediaRef: loadingMessage.mediaRef });
+      }
+
+    } catch (error) {
+      console.error('Error processing chat event:', error);
+      
+      // Mark user message as undelivered and show error for assistant message
+      setThreads(prev => prev.map(thread => 
+        thread.id === activeThreadId 
+          ? {
+              ...thread,
+              messages: thread.messages.map(msg => 
+                msg.id === userMessage.id 
+                  ? { ...msg, isDelivered: false }
+                  : msg.id === loadingMessage.id
+                  ? { ...msg, isLoading: false, error: true }
+                  : msg
+              ),
+              updatedAt: new Date()
+            }
+          : thread
+      ));
+
+      // Save user message as undelivered
+      await ChatService.saveMessage(
+        activeThreadId,
+        userMessage.id,
+        userMessage.content,
+        userMessage.role,
+        userMessage.timestamp.getTime(),
+        userMessage.sequence,
+        false,
+        userMessage.mediaRef
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authData, activeThreadId, threads]);
+
   // Create new thread - this should show the prompt dialog
   const createNewThread = useCallback(() => {
     setShowNewChatPrompt(true);
@@ -138,7 +360,7 @@ export const useChat = () => {
   }, []);
 
   // Handle new thread creation with configuration
-  const handleNewThreadPrompt = useCallback((prompt: NewThreadPrompt) => {
+  const handleNewThreadPrompt = useCallback(async (prompt: NewThreadPrompt & { uploadedMedia?: MediaUploadResult[] }) => {
     if (!authData) return;
 
     // For OpenRouter, use default user name since there's no email
@@ -165,6 +387,35 @@ export const useChat = () => {
       updatedAt: new Date()
     };
 
+    // Handle uploaded media if any
+    if (prompt.uploadedMedia && prompt.uploadedMedia.length > 0) {
+      try {
+        // Import MediaService dynamically
+        const { MediaService } = await import('@/services/mediaService');
+        
+        // Move media from temp bot ID to actual thread ID
+        for (const mediaResult of prompt.uploadedMedia) {
+          if (mediaResult.success && mediaResult.mediaId) {
+            // Update the botId in the media record
+            await MediaService.moveMediaToBot(mediaResult.mediaId, newThread.id);
+          }
+        }
+        
+        // Set first image as profile picture
+        const firstImage = prompt.uploadedMedia.find(m => m.success);
+        if (firstImage?.mediaId) {
+          config.profilePicture = firstImage.mediaId;
+        }
+        
+        console.log('📸 Media transferred to new thread:', {
+          threadId: newThread.id,
+          mediaCount: prompt.uploadedMedia.length
+        });
+      } catch (error) {
+        console.error('Error handling uploaded media:', error);
+      }
+    }
+
     // Add the new thread and set it as active
     setThreads(prev => [newThread, ...prev]);
     setActiveThreadId(newThread.id);
@@ -175,273 +426,11 @@ export const useChat = () => {
     setShowNewChatPrompt(false);
   }, []);
 
-  const sendMessage = useCallback(async (content: string, threadId?: string, image?: string) => {
-    if (!content.trim() || !authData) return;
-
-    let currentThreadId = threadId || activeThreadId;
-    
-    // If no thread is active, we need a configuration first
-    if (!currentThreadId) {
-      setShowNewChatPrompt(true);
-      return;
-    }
-
-    // Get current thread for context
-    const currentThread = threads.find(t => t.id === currentThreadId);
-    if (!currentThread || !currentThread.config) {
-      console.error('Thread not found or missing config:', { currentThreadId, currentThread });
-      return;
-    }
-
-    console.log('📝 Sending message:', { content, currentThreadId, currentThread });
-
-    // Generate unique request ID for this message
-    const requestId = uuidv4();
-    activeRequests.current.add(requestId);
-
-    // Calculate next sequence number
-    const lastMessage = currentThread.messages[currentThread.messages.length - 1];
-    const nextSequence = lastMessage?.sequence ? lastMessage.sequence + 1 : 1;
-
-    // Add user message immediately
-    const userMessage: Message = {
-      id: uuidv4(),
-      content: content.trim(),
-      role: 'user',
-      timestamp: new Date(),
-      sequence: nextSequence,
-      isDelivered: true // User messages are delivered immediately
-    };
-
-    // Add loading assistant message
-    const loadingMessage: Message = {
-      id: uuidv4(),
-      content: '',
-      role: 'assistant',
-      timestamp: new Date(),
-      sequence: nextSequence + 1,
-      isLoading: true
-    };
-
-    console.log('📝 Adding messages:', { userMessage, loadingMessage });
-
-    // Update thread with user message and loading state immediately
-    setThreads(prev => {
-      const updated = prev.map(thread => {
-        if (thread.id === currentThreadId) {
-          const newThread = {
-            ...thread,
-            messages: [...thread.messages, userMessage, loadingMessage],
-            updatedAt: new Date()
-          };
-          console.log('📝 Updated thread:', newThread);
-          return newThread;
-        }
-        return thread;
-      });
-      console.log('📝 All threads after update:', updated);
-      return updated;
-    });
-
-    // Set loading state only if this is the first active request
-    if (activeRequests.current.size === 1) {
-      setIsLoading(true);
-    }
-
-    // Set a fallback timeout to handle cases where the API call doesn't fail but never completes
-    const fallbackTimeout = setTimeout(() => {
-      if (activeRequests.current.has(requestId)) {
-        console.log('📝 Fallback timeout triggered, setting error state');
-        setThreads(prev => prev.map(thread => 
-          thread.id === currentThreadId 
-            ? {
-                ...thread,
-                messages: thread.messages.map(msg => 
-                  msg.id === userMessage.id 
-                    ? { ...msg, isDelivered: false }
-                    : msg.id === loadingMessage.id
-                    ? { ...msg, isLoading: false, error: true }
-                    : msg
-                ),
-                updatedAt: new Date()
-              }
-            : thread
-        ));
-        activeRequests.current.delete(requestId);
-        if (activeRequests.current.size === 0) {
-          setIsLoading(false);
-        }
-      }
-    }, 35000); // 35 seconds fallback
-
-    try {
-      // Generate context for the message
-      const roleplayRules = currentThread.config.rules;
-      const context = await ChatService.generateContext(currentThreadId, roleplayRules);
-      Logger.log('Sending message with context', { content, context });
-
-      // Add timeout to the API call
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
-      });
-
-      // Call the actual backend service with messages excluding loading messages
-      const response = await Promise.race([
-        ChatService.sendMessage(
-          currentThread.messages.filter(msg => !msg.isLoading), // Don't send loading messages
-          content.trim(),
-          currentThread.config.userName,
-          currentThread.config.botName,
-          currentThread.config.rules,
-          currentThreadId, // Add conversationId parameter
-          image // Pass image data if available
-        ),
-        timeoutPromise
-      ]);
-      
-      console.log('📝 Backend response:', response);
-      console.log('📝 Response details:', {
-        responseLength: response?.length,
-        responseType: typeof response,
-        isEmpty: !response || response.trim() === '',
-        requestId,
-        loadingMessageId: loadingMessage.id
-      });
-      
-      // Only update if this request is still active (not cancelled)
-      if (activeRequests.current.has(requestId)) {
-        console.log('📝 Request still active, updating thread with response');
-        
-        // Update thread with assistant response
-        setThreads(prev => {
-          const updated = prev.map(thread => {
-            if (thread.id === currentThreadId) {
-              const newThread = {
-                ...thread,
-                messages: thread.messages.map(msg => 
-                  msg.id === loadingMessage.id 
-                    ? { ...msg, content: response, isLoading: false, sequence: msg.sequence }
-                    : msg
-                ),
-                updatedAt: new Date()
-              };
-              console.log('📝 Updated thread with response:', {
-                threadId: newThread.id,
-                messagesCount: newThread.messages.length,
-                loadingMessageUpdated: newThread.messages.find(m => m.id === loadingMessage.id),
-                allMessages: newThread.messages.map(m => ({
-                  id: m.id,
-                  role: m.role,
-                  content: m.content.substring(0, 50) + '...',
-                  isLoading: m.isLoading,
-                  error: m.error
-                }))
-              });
-              return newThread;
-            }
-            return thread;
-          });
-          console.log('📝 All threads after response update:', updated.length);
-          return updated;
-        });
-
-        // Save both user message and assistant response to database
-        try {
-          // Save user message (delivered)
-          await ChatService.saveMessage(
-            currentThreadId,
-            userMessage.id,
-            userMessage.content,
-            userMessage.role,
-            userMessage.timestamp.getTime(),
-            userMessage.sequence,
-            true // Mark as delivered
-          );
-
-          // Only save assistant response if it has content
-          if (response && response.trim() !== '') {
-            await ChatService.saveMessage(
-              currentThreadId,
-              loadingMessage.id,
-              response,
-              loadingMessage.role,
-              loadingMessage.timestamp.getTime(),
-              loadingMessage.sequence,
-              true // Mark as delivered
-            );
-          }
-
-          Logger.log('Saved user message and assistant response to database', { 
-            userMessage, 
-            assistantMessage: response && response.trim() !== '' ? { id: loadingMessage.id, content: response, role: loadingMessage.role } : null
-          });
-        } catch (saveError) {
-          Logger.error('Error saving messages to database', { userMessage, response, saveError });
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error sending message:', error);
-      console.log('📝 Error details:', { 
-        requestId, 
-        activeRequests: Array.from(activeRequests.current),
-        hasRequest: activeRequests.current.has(requestId)
-      });
-      
-      // Always handle error regardless of active requests check
-      console.log('📝 Handling error, updating messages:', { 
-        userMessageId: userMessage.id, 
-        loadingMessageId: loadingMessage.id,
-        currentThreadId 
-      });
-      
-      // Mark user message as undelivered and show error for assistant message
-      setThreads(prev => prev.map(thread => 
-        thread.id === currentThreadId 
-          ? {
-              ...thread,
-              messages: thread.messages.map(msg => {
-                if (msg.id === userMessage.id) {
-                  console.log('📝 Marking user message as undelivered:', msg);
-                  return { ...msg, isDelivered: false };
-                } else if (msg.id === loadingMessage.id) {
-                  console.log('📝 Setting assistant message error state:', { ...msg, isLoading: false, error: true });
-                  return { ...msg, isLoading: false, error: true };
-                }
-                return msg;
-              }),
-              updatedAt: new Date()
-            }
-          : thread
-      ));
-
-      // Save the user message to database even on error (but mark as undelivered)
-      try {
-        await ChatService.saveMessage(
-          currentThreadId,
-          userMessage.id,
-          userMessage.content,
-          userMessage.role,
-          userMessage.timestamp.getTime(),
-          userMessage.sequence,
-          false // Mark as undelivered
-        );
-        Logger.log('Saved undelivered user message to database', { userMessage });
-      } catch (saveError) {
-        Logger.error('Error saving undelivered user message', { userMessage, saveError });
-      }
-    } finally {
-      // Clear the fallback timeout
-      clearTimeout(fallbackTimeout);
-      
-      // Remove this request from active requests
-      activeRequests.current.delete(requestId);
-      
-      // Only set loading to false if no more active requests
-      if (activeRequests.current.size === 0) {
-        setIsLoading(false);
-      }
-    }
-  }, [activeThreadId, threads, authData]);
+  const sendMessage = useCallback(async (content: string, threadId?: string, image?: string, mediaRef?: string) => {
+    // This function is now deprecated in favor of Redux events
+    // It's kept for backward compatibility but should not be used
+    console.warn('sendMessage is deprecated. Use Redux events instead.');
+  }, []);
 
   const selectThread = useCallback((threadId: string) => {
     setActiveThreadId(threadId);
