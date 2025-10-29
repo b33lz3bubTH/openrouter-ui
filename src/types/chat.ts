@@ -107,4 +107,5 @@ export interface MediaUploadResult {
     width: number;
     height: number;
   };
+  type: 'image' | 'video';
 }

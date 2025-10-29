@@ -346,19 +346,19 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
                             const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
                             const hasMediaId = mediaIdPattern.test(message.content);
                             return hasMediaId && mediaMap.has(message.id) && (
-                              <div className="mb-3 rounded-lg overflow-hidden max-w-sm">
+                              <div className="mb-3 rounded-lg overflow-hidden">
                                 {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
                                   <video 
                                     src={mediaMap.get(message.id)?.blobRef} 
                                     controls 
-                                    className="w-full h-auto rounded-lg" 
+                                    className="w-full h-auto rounded-lg object-contain sm:max-h-48 md:max-h-96" 
                                     preload="metadata"
                                   />
                                 ) : (
                                   <img 
                                     src={mediaMap.get(message.id)?.blobRef} 
                                     alt="Bot media" 
-                                    className="w-full h-auto rounded-lg" 
+                                    className="w-full rounded-lg object-contain sm:max-h-48 md:max-h-96" 
                                   />
                                 )}
                               </div>
