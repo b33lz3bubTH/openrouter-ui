@@ -37,6 +37,7 @@ const initialState: ChatPaginationState = {
 export const loadInitialMessages = createAsyncThunk(
   'chatPagination/loadInitialMessages',
   async (threadId: string) => {
+    await ChatService.fixMessageSequences(threadId);
     const recentMessages = await ChatService.getRecentMessages(threadId, 20);
     
     const filteredMessages = recentMessages
@@ -64,7 +65,7 @@ export const loadMoreMessages = createAsyncThunk(
   'chatPagination/loadMoreMessages',
   async ({ threadId, oldestSequence }: { threadId: string; oldestSequence: number }) => {
     console.log('📝 Redux: Loading more messages', { threadId, oldestSequence });
-    
+    await ChatService.fixMessageSequences(threadId);
     const olderMessages = await ChatService.getOlderMessages(threadId, oldestSequence, 20);
     console.log('📝 Redux: Retrieved older messages from DB', { count: olderMessages.length });
     
@@ -96,14 +97,36 @@ export const loadMoreMessages = createAsyncThunk(
 // Async thunk to add new messages (for real-time updates)
 export const addNewMessages = createAsyncThunk(
   'chatPagination/addNewMessages',
-  async ({ messages, threadId }: { messages: any[]; threadId: string }) => {
-    // Convert Message objects to ReduxMessage (convert Date to number)
-    const reduxMessages: ReduxMessage[] = messages.map(msg => ({
-      ...msg,
-      timestamp: msg.timestamp instanceof Date ? msg.timestamp.getTime() : msg.timestamp
-    }));
-    
-    return { messages: reduxMessages, threadId };
+  async (
+    { messages, threadId }: { messages: any[]; threadId: string },
+    { getState }
+  ) => {
+    const state = getState() as { chatPagination: ChatPaginationState };
+    const existing = state.chatPagination.displayedMessages;
+    let maxSeq = existing.reduce((m, msg) => Math.max(m, msg.sequence ?? 0), 0);
+
+    // Normalize incoming order: ensure user before assistant within same turn
+    const normalized = [...messages]
+      .sort((a, b) => {
+        const tA = a.timestamp instanceof Date ? a.timestamp.getTime() : a.timestamp || 0;
+        const tB = b.timestamp instanceof Date ? b.timestamp.getTime() : b.timestamp || 0;
+        if (tA !== tB) return tA - tB;
+        if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+        return String(a.id).localeCompare(String(b.id));
+      })
+      .map(msg => {
+        const withTimestamp = {
+          ...msg,
+          timestamp: msg.timestamp instanceof Date ? msg.timestamp.getTime() : msg.timestamp
+        } as ReduxMessage;
+        if (withTimestamp.sequence === undefined) {
+          maxSeq += 1;
+          withTimestamp.sequence = maxSeq;
+        }
+        return withTimestamp;
+      });
+
+    return { messages: normalized, threadId };
   }
 );
 
@@ -175,6 +198,18 @@ const chatPaginationSlice = createSlice({
           state.displayedMessages = [...messages, ...state.displayedMessages];
           state.oldestSequence = newOldestSequence;
           
+          // Keep ordering stable after merging
+          state.displayedMessages.sort((a, b) => {
+            const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+            const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+            if (seqA !== seqB) return seqA - seqB;
+            // Ensure user's message appears before assistant for same turn
+            if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+            const timeDiff = (a.timestamp || 0) - (b.timestamp || 0);
+            if (timeDiff !== 0) return timeDiff;
+            return a.id.localeCompare(b.id);
+          });
+
           // Only hide button when we reach sequence 1 (the very first message)
           // Don't hide based on message count alone
           const hasReachedFirst = newOldestSequence === 1;
@@ -250,6 +285,17 @@ const chatPaginationSlice = createSlice({
             console.log('📝 Redux: Added new messages');
           }
           
+          // Ensure stable ordering by sequence asc, then timestamp asc
+          state.displayedMessages.sort((a, b) => {
+            const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+            const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+            if (seqA !== seqB) return seqA - seqB;
+            if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+            const timeDiff = (a.timestamp || 0) - (b.timestamp || 0);
+            if (timeDiff !== 0) return timeDiff;
+            return a.id.localeCompare(b.id);
+          });
+
           console.log('📝 Redux: Final displayedMessages count:', state.displayedMessages.length);
         }
       });

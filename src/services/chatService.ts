@@ -317,7 +317,19 @@ export class ChatService {
   // Fix sequences for all messages in a conversation
   static async fixMessageSequences(conversationId: string): Promise<void> {
     Logger.log('Fixing message sequences for conversation', { conversationId });
-    const messages = await db.messages.where('conversationId').equals(conversationId).sortBy('sequence');
+    // Load all messages and sort by reliable fields to reconstruct order
+    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
+
+    messages.sort((a, b) => {
+      const tA = a.timestamp || 0;
+      const tB = b.timestamp || 0;
+      if (tA !== tB) return tA - tB; // oldest first
+      if (a.role !== b.role) return a.role === 'user' ? -1 : 1; // user msg before assistant in same turn
+      if (a.sequence !== undefined && b.sequence !== undefined && a.sequence !== b.sequence) {
+        return a.sequence - b.sequence; // fallback to existing sequence if timestamps equal
+      }
+      return String(a.id).localeCompare(String(b.id));
+    });
 
     let sequence = 1;
     for (const message of messages) {
@@ -328,7 +340,7 @@ export class ChatService {
       sequence++;
     }
 
-    Logger.log('Fixed message sequences', { conversationId, messages });
+    Logger.log('Fixed message sequences', { conversationId, count: messages.length });
   }
 
   // Retrieve messages for a specific conversation
@@ -336,8 +348,15 @@ export class ChatService {
     Logger.log('Retrieving messages for conversation', { conversationId });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
 
-    // Sort messages by sequence in ascending order
-    messages.sort((a, b) => a.sequence - b.sequence);
+    // Sort messages by sequence asc with stable tie-breakers
+    messages.sort((a, b) => {
+      const seq = (a.sequence - b.sequence);
+      if (seq !== 0) return seq;
+      const t = (a.timestamp || 0) - (b.timestamp || 0);
+      if (t !== 0) return t;
+      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      return String(a.id).localeCompare(String(b.id));
+    });
     Logger.log('Sorted messages by sequence', { messages });
 
     return messages;
@@ -348,14 +367,28 @@ export class ChatService {
     Logger.log('Retrieving recent messages', { conversationId, limit });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
-    // Sort by sequence descending (newest first)
-    messages.sort((a, b) => b.sequence - a.sequence);
+    // Sort by sequence descending (newest first) with stable tie-breakers
+    messages.sort((a, b) => {
+      const seq = (b.sequence - a.sequence);
+      if (seq !== 0) return seq;
+      const t = (b.timestamp || 0) - (a.timestamp || 0);
+      if (t !== 0) return t;
+      if (a.role !== b.role) return a.role === 'assistant' ? -1 : 1; // invert for desc consistency
+      return String(b.id).localeCompare(String(a.id));
+    });
     
     // Take the most recent messages
     const recentMessages = messages.slice(0, limit);
     
     // Sort back to ascending order for display (oldest first)
-    recentMessages.sort((a, b) => a.sequence - b.sequence);
+    recentMessages.sort((a, b) => {
+      const seq = (a.sequence - b.sequence);
+      if (seq !== 0) return seq;
+      const t = (a.timestamp || 0) - (b.timestamp || 0);
+      if (t !== 0) return t;
+      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      return String(a.id).localeCompare(String(b.id));
+    });
     
     Logger.log('Retrieved recent messages', { recentMessages });
     return recentMessages;
@@ -366,14 +399,28 @@ export class ChatService {
     Logger.log('Retrieving older messages', { conversationId, beforeSequence, limit });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
-    // Sort by sequence descending (newest first)
-    messages.sort((a, b) => b.sequence - a.sequence);
+    // Sort by sequence descending (newest first) with stable tie-breakers
+    messages.sort((a, b) => {
+      const seq = (b.sequence - a.sequence);
+      if (seq !== 0) return seq;
+      const t = (b.timestamp || 0) - (a.timestamp || 0);
+      if (t !== 0) return t;
+      if (a.role !== b.role) return a.role === 'assistant' ? -1 : 1;
+      return String(b.id).localeCompare(String(a.id));
+    });
     
     // Find messages older than beforeSequence
     const olderMessages = messages.filter(msg => msg.sequence < beforeSequence).slice(0, limit);
     
     // Sort back to ascending order for display (oldest first)
-    olderMessages.sort((a, b) => a.sequence - b.sequence);
+    olderMessages.sort((a, b) => {
+      const seq = (a.sequence - b.sequence);
+      if (seq !== 0) return seq;
+      const t = (a.timestamp || 0) - (b.timestamp || 0);
+      if (t !== 0) return t;
+      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      return String(a.id).localeCompare(String(b.id));
+    });
     
     Logger.log('Retrieved older messages', { olderMessages });
     return olderMessages;

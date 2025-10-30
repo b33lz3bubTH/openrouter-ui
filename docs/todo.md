@@ -16,6 +16,7 @@
 ## in progress fixes (current requiremnts of in progress will generate some errors, those will come here) these are related to in progress tasks
 - [x] fixed "Cannot access 'toast' before initialization" error in ChatLayout.tsx by removing toast from useCallback dependency arrays since it's a stable reference
 - [x] fixed summarization logic to properly wait for 5 messages before generating summary, and retry on every message after failure until success (created dedicated summaryState table for global state tracking, updated database version to 9)
+- [x] for both desktop and for mobile the chat area css looks awful, its not dynamic for long messages, like it should grow with message length but it will grow to some extend, similar to whatsapp. the ui needs to be similar to chat apps, fb , instagram, tiktok and whatsapp and telegram, then and then only it will be good.
 
 
 ## high priority tasks
