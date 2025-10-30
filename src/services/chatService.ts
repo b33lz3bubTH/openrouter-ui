@@ -1,6 +1,7 @@
 import { BackendChatRequest, BackendChatResponse, BackendContextMessage, Message } from '@/types/chat';
 import db from './chatDatabase';
 import { Logger } from '@/utils/logger';
+import { SummarySchedulerService } from './summarySchedulerService';
 
 const API_BASE_URL = 'https://3b1b6575caab.ngrok-free.app';
 
@@ -406,10 +407,23 @@ export class ChatService {
       hasRoleplayRules: !!roleplayRules
     });
 
+    // Get recent summaries (last 5)
+    const summaries = await SummarySchedulerService.getRecentSummaries(conversationId, 5);
+    console.log('📝 Context: Found summaries:', summaries.length);
+
     // Start with roleplay rules
     let context = '';
     if (roleplayRules && roleplayRules.trim()) {
       context += `Roleplay Rules: ${roleplayRules.trim()}\n\n`;
+    }
+
+    // Add summaries if available
+    if (summaries.length > 0) {
+      context += 'Previous Conversation Summaries:\n';
+      for (const summary of summaries) {
+        context += `- ${summary.summary}\n`;
+      }
+      context += '\n';
     }
 
     // Add recent messages
@@ -484,6 +498,9 @@ export class ChatService {
       
       // Delete the thread configuration
       await db.threadConfigs.where('id').equals(threadId).delete();
+      
+      // Delete all summaries for this thread
+      await SummarySchedulerService.deleteSummariesForThread(threadId);
       
       Logger.log('Successfully deleted thread and all associated data', { threadId });
     } catch (error) {

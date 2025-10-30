@@ -8,6 +8,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '@/store/store';
 import { markEventProcessed, setProcessingEvent } from '@/store/chatEventSlice';
 import { MediaService } from '@/services/mediaService';
+import { SummarySchedulerService } from '@/services/summarySchedulerService';
 
 // Helper function to check if message contains media-related content
 const isMediaMessage = (content: string): boolean => {
@@ -315,6 +316,32 @@ export const useChat = () => {
           loadingMessage.mediaRef
         );
         console.log('📸 Saved assistant message with mediaRef:', { messageId: loadingMessage.id, mediaRef: loadingMessage.mediaRef });
+      }
+
+      if (event.type === 'text' && response && response.trim() !== '') {
+        try {
+          const shouldGenerate = await SummarySchedulerService.shouldGenerateSummary(activeThreadId);
+          if (shouldGenerate) {
+            const currentThread = threads.find(t => t.id === activeThreadId);
+            if (currentThread && currentThread.config) {
+              const recentMessages = currentThread.messages
+                .filter(msg => !msg.isLoading && !isMediaMessage(msg.content))
+                .slice(-5);
+              
+              const summary = await SummarySchedulerService.generateSummary(
+                activeThreadId,
+                currentThread.config.rules,
+                currentThread.config.botName,
+                recentMessages
+              );
+              
+              await SummarySchedulerService.saveSummary(activeThreadId, summary);
+              console.log('✅ Summary generated and saved');
+            }
+          }
+        } catch (summaryError) {
+          console.error('Error generating summary:', summaryError);
+        }
       }
 
     } catch (error) {
