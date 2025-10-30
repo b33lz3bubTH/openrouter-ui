@@ -41,6 +41,7 @@ export interface Summary {
 export class SummarySchedulerService {
   private static readonly MESSAGE_COUNT_TRIGGER = 5;
   private static readonly MAX_SUMMARIES_TO_KEEP = 5;
+  private static readonly MAX_RETRY_ATTEMPTS = 3; // Prevent infinite retry loops
   private static summaryPlugin: undefined | ((prompt: string, config: AuthConfig) => Promise<string>);
 
   static registerPlugin(generator: (prompt: string, config: AuthConfig) => Promise<string>) {
@@ -71,6 +72,41 @@ export class SummarySchedulerService {
       return shouldGenerate;
     } catch (error) {
       Logger.error('Error checking if should generate summary', { threadId, error });
+      return false;
+    }
+  }
+
+  static async shouldGenerateOrRetry(threadId: string): Promise<boolean> {
+    try {
+      if (!threadId || threadId.trim() === '') {
+        Logger.warn('Invalid threadId provided to shouldGenerateOrRetry');
+        return false;
+      }
+
+      const messages = await this.getSuccessfulMessages(threadId);
+      const summaries = await this.getSummaries(threadId);
+
+      // Calculate expected summaries: floor division of messages by trigger count
+      const expectedSummaries = Math.floor(messages.length / this.MESSAGE_COUNT_TRIGGER);
+      const missingSummaries = expectedSummaries - summaries.length;
+
+      // Prevent infinite retry loops - if we have too many missing summaries,
+      // it might indicate persistent failures, so limit retry attempts
+      const shouldGenerate = missingSummaries > 0 && missingSummaries <= this.MAX_RETRY_ATTEMPTS;
+
+      Logger.log('Summary generation check for thread', {
+        threadId,
+        messageCount: messages.length,
+        summaryCount: summaries.length,
+        expectedSummaries,
+        missingSummaries,
+        shouldGenerate,
+        maxRetries: this.MAX_RETRY_ATTEMPTS
+      });
+
+      return shouldGenerate;
+    } catch (error) {
+      Logger.error('Error checking if should generate/retry summary', { threadId, error });
       return false;
     }
   }
@@ -119,6 +155,71 @@ export class SummarySchedulerService {
       return generatedSummary;
     } catch (error) {
       Logger.error('Error generating summary, using fallback', { threadId, error });
+      return this.generateFallbackSummary(recentMessages, botName);
+    }
+  }
+
+  static async generateSummaryStrict(
+    threadId: string,
+    roleplayRules: string,
+    botName: string,
+    recentMessages: Message[]
+  ): Promise<string> {
+    Logger.log('Generating summary (strict mode)', {
+      threadId,
+      recentMessagesCount: recentMessages.length,
+      hasRoleplayRules: !!roleplayRules?.trim()
+    });
+
+    try {
+      const previousSummaries = await this.getRecentSummaries(threadId, 5);
+      const previousTwoSummaries = previousSummaries.slice(-2).map(s => s.summary);
+      const contextGlimpses = await this.getContextGlimpses(threadId, botName, 5);
+
+      const summaryPrompt = this.buildSummaryPrompt(
+        roleplayRules,
+        recentMessages,
+        previousTwoSummaries,
+        botName,
+        contextGlimpses
+      );
+
+      Logger.log('Built summary prompt', {
+        threadId,
+        promptLength: summaryPrompt.length,
+        previousSummariesCount: previousSummaries.length,
+        contextGlimpsesCount: contextGlimpses.length
+      });
+
+      const config = getAuthConfig();
+      let summary: string;
+
+      if (this.summaryPlugin) {
+        summary = await this.summaryPlugin(summaryPrompt, config);
+      } else if (config.backend === 'openrouter' && config.apiKey && config.modelName) {
+        summary = await this.generateWithOpenRouter(summaryPrompt, config);
+      } else {
+        summary = await this.generateWithBackend(summaryPrompt, config);
+      }
+
+      if (!summary || summary.trim() === '') {
+        Logger.warn('Generated empty summary, using fallback', { threadId });
+        summary = this.generateFallbackSummary(recentMessages, botName);
+      }
+
+      const finalSummary = summary.trim();
+      Logger.log('Summary generation completed', {
+        threadId,
+        summaryLength: finalSummary.length
+      });
+
+      return finalSummary;
+    } catch (error) {
+      Logger.error('Failed to generate summary in strict mode', {
+        threadId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Return fallback summary instead of throwing to prevent blocking chat flow
       return this.generateFallbackSummary(recentMessages, botName);
     }
   }

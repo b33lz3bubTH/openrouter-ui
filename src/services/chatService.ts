@@ -407,8 +407,8 @@ export class ChatService {
       hasRoleplayRules: !!roleplayRules
     });
 
-    // Get recent summaries (last 5)
-    const summaries = await SummarySchedulerService.getRecentSummaries(conversationId, 5);
+    // Get recent summaries (last 3)
+    const summaries = await SummarySchedulerService.getRecentSummaries(conversationId, 3);
     console.log('📝 Context: Found summaries:', summaries.length);
 
     // Start with roleplay rules

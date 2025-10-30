@@ -16,9 +16,12 @@
 - [x] summarization needs to be very dynamic as in it should have glimps of previous conversations with current context, atleast glimps of 5 different chat context.
 - [x] make assumptions to make things better, with context layer.
 - [x] make this as a plugin.
-- [ ] 
-- [ ]
-
+ - [x] sometimes summary generation might fail from llm, so in that case, for every next messsage try to generate the summary as well, untill its done. there is no error handling here. in general for every 5 message there will be summary generation.
+ - [x] make sure the roleplay rules arent repated, just successful messages and response from llm will be summerized for context.
+ - [x] only 3 recent summerization context will be passed to the llm for each message user is making.
+- [x] make sure everything is persisted, so that after 4 messages user goes away and next time he comes back, after sending 1 message the summary should generate
+- [x] if the summary generation failed, then dont retry immidiately, next time when user sends a message, generate the summary then. this will make the thing dynamic.
+- [x] all things is to be done chat thread specific, so everything is atomic.
 
 ## in progress fixes (current requiremnts of in progress will generate some errors, those will come here) these are related to in progress tasks
 - [ ]

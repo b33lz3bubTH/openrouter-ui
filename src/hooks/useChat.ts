@@ -319,28 +319,48 @@ export const useChat = () => {
       }
 
       if (event.type === 'text' && response && response.trim() !== '') {
+        // Handle summary generation with proper error handling and atomicity
         try {
-          const shouldGenerate = await SummarySchedulerService.shouldGenerateSummary(activeThreadId);
+          const shouldGenerate = await SummarySchedulerService.shouldGenerateOrRetry(activeThreadId);
           if (shouldGenerate) {
             const currentThread = threads.find(t => t.id === activeThreadId);
             if (currentThread && currentThread.config) {
               const recentMessages = currentThread.messages
                 .filter(msg => !msg.isLoading && !isMediaMessage(msg.content))
                 .slice(-5);
-              
-              const summary = await SummarySchedulerService.generateSummary(
+
+              console.log('🔄 Attempting summary generation', {
+                threadId: activeThreadId,
+                recentMessagesCount: recentMessages.length
+              });
+
+              const summary = await SummarySchedulerService.generateSummaryStrict(
                 activeThreadId,
                 currentThread.config.rules,
                 currentThread.config.botName,
                 recentMessages
               );
-              
+
+              // Atomic save operation - thread-specific
               await SummarySchedulerService.saveSummary(activeThreadId, summary);
-              console.log('✅ Summary generated and saved');
+              console.log('✅ Summary generated and saved for thread', {
+                threadId: activeThreadId,
+                summaryLength: summary.length
+              });
             }
+          } else {
+            console.log('⏭️ Skipping summary generation', {
+              threadId: activeThreadId,
+              reason: 'not needed'
+            });
           }
         } catch (summaryError) {
-          console.error('Error generating summary:', summaryError);
+          console.error('❌ Summary generation failed for thread', {
+            threadId: activeThreadId,
+            error: summaryError instanceof Error ? summaryError.message : String(summaryError)
+          });
+          // Don't rethrow - summary failure shouldn't break chat flow
+          // Next message will retry automatically via shouldGenerateOrRetry
         }
       }
 
