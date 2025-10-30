@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatThread, Message, ThreadConfig, NewThreadPrompt, MediaUploadResult } from '@/types/chat';
 import { ChatService } from '@/services/chatService';
@@ -8,6 +8,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '@/store/store';
 import { markEventProcessed, setProcessingEvent } from '@/store/chatEventSlice';
 import { MediaService } from '@/services/mediaService';
+import { SummarySchedulerService } from '@/services/summarySchedulerService';
 
 // Helper function to check if message contains media-related content
 const isMediaMessage = (content: string): boolean => {
@@ -147,13 +148,37 @@ export const useChat = () => {
 
   useEffect(() => {
     (async () => {
-      const loadedThreads = await loadThreads();
-      setThreads(loadedThreads);
+      try {
+        // First, run migration to ensure compatibility with older versions
+        Logger.log('Initializing chat system with migration check');
+        await SummarySchedulerService.migrateExistingThreads();
+
+        // Then load threads
+        const loadedThreads = await loadThreads();
+        setThreads(loadedThreads);
+
+        Logger.log('Chat system initialized successfully');
+      } catch (error) {
+        Logger.error('Error during chat system initialization', error);
+        // Still try to load threads even if migration fails
+        try {
+          const loadedThreads = await loadThreads();
+          setThreads(loadedThreads);
+        } catch (loadError) {
+          Logger.error('Failed to load threads after migration error', loadError);
+          setThreads([]);
+        }
+      }
     })();
   }, []);
 
+  // Debounce thread saving to prevent excessive saves
   useEffect(() => {
-    saveThreads(threads);
+    const timeoutId = setTimeout(() => {
+      saveThreads(threads);
+    }, 500); // Save after 500ms of no changes
+
+    return () => clearTimeout(timeoutId);
   }, [threads]);
 
   // Process Redux events
@@ -303,6 +328,9 @@ export const useChat = () => {
         userMessage.mediaRef
       );
 
+      // Increment message count for summary tracking (user message)
+      await SummarySchedulerService.incrementMessageCount(activeThreadId);
+
       if (response && response.trim() !== '') {
         await ChatService.saveMessage(
           activeThreadId,
@@ -315,6 +343,59 @@ export const useChat = () => {
           loadingMessage.mediaRef
         );
         console.log('📸 Saved assistant message with mediaRef:', { messageId: loadingMessage.id, mediaRef: loadingMessage.mediaRef });
+
+        // Increment message count for summary tracking
+        await SummarySchedulerService.incrementMessageCount(activeThreadId);
+      }
+
+      if (event.type === 'text' && response && response.trim() !== '') {
+        // Handle summary generation with proper error handling and atomicity
+        try {
+          const shouldGenerate = await SummarySchedulerService.shouldGenerateOrRetry(activeThreadId);
+          if (shouldGenerate) {
+            const currentThread = threads.find(t => t.id === activeThreadId);
+            if (currentThread && currentThread.config) {
+              const recentMessages = currentThread.messages
+                .filter(msg => !msg.isLoading && !isMediaMessage(msg.content))
+                .slice(-5);
+
+              console.log('🔄 Attempting summary generation', {
+                threadId: activeThreadId,
+                recentMessagesCount: recentMessages.length
+              });
+
+              const summary = await SummarySchedulerService.generateSummaryStrict(
+                activeThreadId,
+                currentThread.config.rules,
+                currentThread.config.botName,
+                recentMessages
+              );
+
+              // Atomic save operation - thread-specific
+              await SummarySchedulerService.saveSummary(activeThreadId, summary);
+              console.log('✅ Summary generated and saved for thread', {
+                threadId: activeThreadId,
+                summaryLength: summary.length
+              });
+            }
+          } else {
+            console.log('⏭️ Skipping summary generation', {
+              threadId: activeThreadId,
+              reason: 'not needed'
+            });
+          }
+        } catch (summaryError) {
+          console.error('❌ Summary generation failed for thread', {
+            threadId: activeThreadId,
+            error: summaryError instanceof Error ? summaryError.message : String(summaryError)
+          });
+
+          // Set retry mode so we attempt summary generation on every subsequent message
+          await SummarySchedulerService.setRetryMode(activeThreadId);
+
+          // Don't rethrow - summary failure shouldn't break chat flow
+          // Next message will retry automatically via shouldGenerateOrRetry
+        }
       }
 
     } catch (error) {
@@ -472,14 +553,24 @@ export const useChat = () => {
     ));
   }, []);
 
-  const activeThread = threads.find(thread => thread.id === activeThreadId);
+  // Memoize active thread to prevent unnecessary re-renders
+  const activeThread = useMemo(() =>
+    threads.find(thread => thread.id === activeThreadId),
+    [threads, activeThreadId]
+  );
 
-  console.log('📝 Current state:', { 
-    threads: threads.length, 
-    activeThreadId, 
-    activeThread: activeThread?.id,
-    activeThreadMessages: activeThread?.messages?.length 
-  });
+  // Memoize thread count to prevent logging on every render
+  const threadCount = threads.length;
+
+  // Only log when important state changes
+  useEffect(() => {
+    console.log('📝 Current state changed:', {
+      threads: threadCount,
+      activeThreadId,
+      activeThread: activeThread?.id,
+      activeThreadMessages: activeThread?.messages?.length
+    });
+  }, [threadCount, activeThreadId, activeThread?.id, activeThread?.messages?.length]);
 
   return {
     threads,

@@ -97,17 +97,86 @@
   .dark ::-webkit-scrollbar {
     width: 8px;
   }
-  
+
   .dark ::-webkit-scrollbar-track {
     background: hsl(var(--muted));
   }
-  
+
   .dark ::-webkit-scrollbar-thumb {
     background: hsl(var(--muted-foreground));
     border-radius: 4px;
   }
-  
+
   .dark ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--accent-foreground));
+  }
+}
+
+/* Smooth animations and transitions */
+@layer components {
+  /* Message animations */
+  .message-enter {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: messageSlideIn 0.3s ease-out forwards;
+  }
+
+  .message-loading {
+    animation: messagePulse 1.5s ease-in-out infinite;
+  }
+
+  /* Button hover effects */
+  .btn-hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .btn-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Smooth scroll behavior */
+  .smooth-scroll {
+    scroll-behavior: smooth;
+  }
+
+  /* Typing indicator animation */
+  .typing-dots span {
+    animation: typingDot 1.4s infinite ease-in-out;
+  }
+
+  .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+  .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0s; }
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes messagePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes typingDot {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
   }
 }

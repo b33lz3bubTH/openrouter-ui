@@ -18,9 +18,9 @@ import { MediaUpload } from '@/components/media/MediaUpload';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, memo } from "react";
 
-export const ChatLayout = () => {
+export const ChatLayout = memo(() => {
   const {
     threads,
     activeThread,
@@ -43,9 +43,9 @@ export const ChatLayout = () => {
   const [hasMedia, setHasMedia] = useState(false);
   const [showMediaDialog, setShowMediaDialog] = useState(false);
 
-  const handleSendMessage = (message: string, image?: string) => {
+  const handleSendMessage = useCallback((message: string, image?: string) => {
     sendMessage(message, activeThreadId || undefined, image);
-  };
+  }, [sendMessage, activeThreadId]);
 
   // Load bot media when active thread changes
   useEffect(() => {
@@ -69,7 +69,7 @@ export const ChatLayout = () => {
     loadBotMedia();
   }, [activeThreadId]);
 
-  const handleRequestMedia = async () => {
+  const handleRequestMedia = useCallback(async () => {
     if (!activeThreadId) return;
 
     try {
@@ -81,23 +81,23 @@ export const ChatLayout = () => {
     } catch (error) {
       console.error('Error requesting media:', error);
     }
-  };
+  }, [activeThreadId, sendMessage]);
 
-  const handleCopyRules = () => {
+  const handleCopyRules = useCallback(() => {
     if (activeThread?.config?.rules) {
       navigator.clipboard.writeText(activeThread.config.rules);
       toast.success("Roleplay rules copied to clipboard");
     }
-  };
+  }, [activeThread?.config?.rules]);
 
-  const handleEditRules = () => {
+  const handleEditRules = useCallback(() => {
     if (activeThread?.config?.rules) {
       setEditedRules(activeThread.config.rules);
       setIsEditingRules(true);
     }
-  };
+  }, [activeThread?.config?.rules]);
 
-  const handleSaveRules = () => {
+  const handleSaveRules = useCallback(() => {
     if (activeThread && editedRules.trim()) {
       updateThreadConfig(activeThread.id, {
         ...activeThread.config!,
@@ -106,23 +106,23 @@ export const ChatLayout = () => {
       setIsEditingRules(false);
       toast.success("Roleplay rules updated");
     }
-  };
+  }, [activeThread, editedRules, updateThreadConfig]);
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = useCallback(() => {
     setIsEditingRules(false);
     setEditedRules('');
-  };
+  }, []);
 
-  const handleMediaUploadComplete = (results: any[]) => {
+  const handleMediaUploadComplete = useCallback((results: any[]) => {
     if (activeThreadId) {
       MediaService.getBotMedia(activeThreadId).then(media => {
         setBotMedia(media);
         setHasMedia(media.length > 0);
       });
     }
-  };
+  }, [activeThreadId]);
 
-  const handleRemoveMedia = async (mediaId: string) => {
+  const handleRemoveMedia = useCallback(async (mediaId: string) => {
     await MediaService.deleteMedia(mediaId);
     if (activeThreadId) {
       MediaService.getBotMedia(activeThreadId).then(media => {
@@ -130,17 +130,20 @@ export const ChatLayout = () => {
         setHasMedia(media.length > 0);
       });
     }
-  };
+  }, [activeThreadId]);
 
-  const handleNewThreadPromptAsync = async (prompt: any) => {
+  const handleNewThreadPromptAsync = useCallback(async (prompt: any) => {
     await handleNewThreadPrompt(prompt);
-  };
+  }, [handleNewThreadPrompt]);
 
   const { theme } = useTheme();
   const toast = useSiriToast();
-  
-  // Use theme-specific opacity if no custom opacity is provided
-  const backgroundOpacity = theme === 'light' ? 0.1 : 0.8;
+
+  // Memoize theme-specific opacity to prevent unnecessary recalculations
+  const backgroundOpacity = useMemo(() =>
+    theme === 'light' ? 0.1 : 0.8,
+    [theme]
+  );
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -199,7 +202,7 @@ export const ChatLayout = () => {
             <div className="flex items-center space-x-1">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 flex-shrink-0">
+                  <Button variant="ghost" size="icon" className="h-9 w-9 flex-shrink-0 btn-hover-lift">
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -255,11 +258,11 @@ export const ChatLayout = () => {
               <DialogTitle className="flex items-center justify-between">
                 Roleplay Rules
                 <div className="flex space-x-2">
-                  <Button variant="ghost" size="sm" onClick={handleCopyRules}>
+                  <Button variant="ghost" size="sm" onClick={handleCopyRules} className="btn-hover-lift">
                     <Copy className="h-4 w-4 mr-2" />
                     Copy
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={handleEditRules}>
+                  <Button variant="ghost" size="sm" onClick={handleEditRules} className="btn-hover-lift">
                     <Edit className="h-4 w-4 mr-2" />
                     Edit
                   </Button>
@@ -276,10 +279,10 @@ export const ChatLayout = () => {
                     placeholder="Enter roleplay rules..."
                   />
                   <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={handleCancelEdit}>
+                    <Button variant="outline" onClick={handleCancelEdit} className="btn-hover-lift">
                       Cancel
                     </Button>
-                    <Button onClick={handleSaveRules}>
+                    <Button onClick={handleSaveRules} className="btn-hover-lift">
                       Save
                     </Button>
                   </div>
@@ -325,4 +328,4 @@ export const ChatLayout = () => {
       )}
     </SidebarProvider>
   );
-};
+});
