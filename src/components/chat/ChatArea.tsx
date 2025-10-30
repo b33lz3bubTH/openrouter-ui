@@ -148,14 +148,23 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
   } = useSelector((state: RootState) => state.chatPagination);
 
   // Convert Redux messages back to proper Message format for rendering - memoized to prevent recreation
-  const displayedMessages: Message[] = useMemo(() =>
-    reduxMessages.map(msg => ({
+  const displayedMessages: Message[] = useMemo(() => {
+    const mapped = reduxMessages.map(msg => ({
       ...msg,
-      timestamp: new Date(msg.timestamp), // Convert number back to Date
-      mediaRef: msg.mediaRef // Ensure mediaRef is included
-    })),
-    [reduxMessages]
-  );
+      timestamp: new Date(msg.timestamp),
+      mediaRef: msg.mediaRef
+    })) as unknown as Message[];
+    mapped.sort((a, b) => {
+      const seqA = (a as any).sequence ?? Number.MAX_SAFE_INTEGER;
+      const seqB = (b as any).sequence ?? Number.MAX_SAFE_INTEGER;
+      if (seqA !== seqB) return seqA - seqB;
+      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      const timeDiff = (a.timestamp as Date).getTime() - (b.timestamp as Date).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return a.id.localeCompare(b.id);
+    });
+    return mapped;
+  }, [reduxMessages]);
 
   console.log('📝 ChatArea Redux state:', { 
     activeThread: activeThread?.id, 

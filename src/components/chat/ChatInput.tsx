@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Paperclip, X, Image } from 'lucide-react';
@@ -23,6 +23,16 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
   const toast = useSiriToast();
   const dispatch = useDispatch();
   const { authData } = useAuth();
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const maxHeight = 192; // 12rem ~ Tailwind max-h-48
+    const nextHeight = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [message]);
 
   const handleSubmit = () => {
     if (!message.trim() || isLoading || !threadId || !authData) return;
@@ -117,7 +127,7 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
           </div>
         )}
         
-        <div className="relative flex items-end space-x-3">
+        <div className="relative flex items-end gap-2 md:gap-3">
           {/* Input Area */}
           <div className="flex-1 relative">
             <Textarea
@@ -127,7 +137,8 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder="Ask me anything... (Ctrl+V to paste images)"
-              className="min-h-[52px] max-h-32 resize-none rounded-xl pr-20 py-3 bg-background border-input focus:border-ring focus:ring-0 text-foreground placeholder-muted-foreground"
+              rows={1}
+              className="min-h-[52px] max-h-48 overflow-y-auto resize-none rounded-xl pr-20 py-3 bg-background border-input focus:border-ring focus:ring-0 text-foreground placeholder-muted-foreground leading-relaxed"
               disabled={isLoading}
             />
             
