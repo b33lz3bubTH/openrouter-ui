@@ -38,6 +38,15 @@ export interface Summary {
   sequence: number;
 }
 
+interface SummaryState {
+  id: string;
+  threadId: string;
+  messageCount: number;
+  lastSummaryMessageCount: number;
+  isInRetryMode: boolean;
+  lastUpdated: number;
+}
+
 export class SummarySchedulerService {
   private static readonly MESSAGE_COUNT_TRIGGER = 5;
   private static readonly MAX_SUMMARIES_TO_KEEP = 5;
@@ -47,6 +56,101 @@ export class SummarySchedulerService {
 
   static registerPlugin(generator: (prompt: string, config: AuthConfig) => Promise<string>) {
     this.summaryPlugin = generator;
+  }
+
+  /**
+   * Get or create summary state for a thread
+   */
+  private static async getSummaryState(threadId: string): Promise<SummaryState> {
+    try {
+      let state = await db.summaryState.get(threadId);
+      if (!state) {
+        // Create initial state
+        state = {
+          id: threadId,
+          threadId,
+          messageCount: 0,
+          lastSummaryMessageCount: 0,
+          isInRetryMode: false,
+          lastUpdated: Date.now()
+        };
+        await db.summaryState.add(state);
+        Logger.log('Created initial summary state for thread', { threadId });
+      }
+      return state;
+    } catch (error) {
+      Logger.error('Error getting summary state', { threadId, error });
+      // Return default state on error
+      return {
+        id: threadId,
+        threadId,
+        messageCount: 0,
+        lastSummaryMessageCount: 0,
+        isInRetryMode: false,
+        lastUpdated: Date.now()
+      };
+    }
+  }
+
+  /**
+   * Update message count for a thread
+   */
+  static async incrementMessageCount(threadId: string): Promise<void> {
+    try {
+      const state = await this.getSummaryState(threadId);
+      const newMessageCount = state.messageCount + 1;
+
+      await db.summaryState.update(threadId, {
+        messageCount: newMessageCount,
+        lastUpdated: Date.now()
+      });
+
+      Logger.log('Incremented message count for thread', {
+        threadId,
+        oldCount: state.messageCount,
+        newCount: newMessageCount
+      });
+    } catch (error) {
+      Logger.error('Error incrementing message count', { threadId, error });
+    }
+  }
+
+  /**
+   * Update summary state after successful summary generation
+   */
+  private static async updateSummarySuccess(threadId: string): Promise<void> {
+    try {
+      const state = await this.getSummaryState(threadId);
+      await db.summaryState.update(threadId, {
+        lastSummaryMessageCount: state.messageCount,
+        isInRetryMode: false,
+        lastUpdated: Date.now()
+      });
+
+      Logger.log('Updated summary state after success', {
+        threadId,
+        messageCount: state.messageCount,
+        lastSummaryMessageCount: state.messageCount
+      });
+    } catch (error) {
+      Logger.error('Error updating summary state after success', { threadId, error });
+    }
+  }
+
+  /**
+   * Set retry mode for a thread
+   */
+  static async setRetryMode(threadId: string): Promise<void> {
+    try {
+      await db.summaryState.update(threadId, {
+        isInRetryMode: true,
+        lastUpdated: Date.now()
+      });
+
+      Logger.log('Set retry mode for thread', { threadId });
+    } catch (error) {
+      Logger.error('Error setting retry mode', { threadId, error });
+    }
   }
 
   /**
@@ -80,7 +184,10 @@ export class SummarySchedulerService {
           // 4. Initialize summary state if needed
           await this.initializeSummaryState(conversation.id);
 
-          // 5. Mark as migrated
+          // 5. Ensure summary state table has entry for this thread
+          await this.getSummaryState(conversation.id);
+
+          // 6. Mark as migrated
           this.migratedThreads.add(conversation.id);
 
           Logger.log('Successfully migrated thread', { threadId: conversation.id });
@@ -152,7 +259,9 @@ export class SummarySchedulerService {
           id: threadId,
           botName: 'Bot',
           rules: '',
-          userName: 'User'
+          userName: 'User',
+          lastSuccessfulSummaryMessageCount: 0,
+          summaryRetryMode: false
         });
 
         Logger.log('Default config created', { threadId });
@@ -162,7 +271,9 @@ export class SummarySchedulerService {
           ...existingConfig,
           botName: existingConfig.botName || 'Bot',
           rules: existingConfig.rules || '',
-          userName: existingConfig.userName || 'User'
+          userName: existingConfig.userName || 'User',
+          lastSuccessfulSummaryMessageCount: existingConfig.lastSuccessfulSummaryMessageCount || 0,
+          summaryRetryMode: existingConfig.summaryRetryMode || false
         };
 
         if (JSON.stringify(updatedConfig) !== JSON.stringify(existingConfig)) {
@@ -223,6 +334,20 @@ export class SummarySchedulerService {
     try {
       const messages = await this.getSuccessfulMessages(threadId);
       const summaries = await this.getSummaries(threadId);
+      const state = await this.getSummaryState(threadId);
+
+      // Sync the message count in summary state
+      if (state.messageCount !== messages.length) {
+        await db.summaryState.update(threadId, {
+          messageCount: messages.length,
+          lastUpdated: Date.now()
+        });
+        Logger.log('Synced message count in summary state', {
+          threadId,
+          oldCount: state.messageCount,
+          newCount: messages.length
+        });
+      }
 
       if (messages.length === 0) return; // No messages, nothing to initialize
 
@@ -235,17 +360,16 @@ export class SummarySchedulerService {
         messageCount: messages.length,
         summaryCount: summaries.length,
         expectedSummaries,
-        missingSummaries
+        missingSummaries,
+        currentSummaryState: state
       });
 
-      // If we have missing summaries and we're at a trigger point, we'll let the normal flow handle it
-      // The shouldGenerateOrRetry method will handle retries on next message
-
+      // If we have missing summaries, set retry mode to catch up
       if (missingSummaries > 0) {
-        Logger.log('Thread needs summary catch-up', {
+        await this.setRetryMode(threadId);
+        Logger.log('Thread needs summary catch-up, set retry mode', {
           threadId,
-          missingSummaries,
-          willHandleOnNextMessage: true
+          missingSummaries
         });
       }
 
@@ -289,35 +413,32 @@ export class SummarySchedulerService {
         return false;
       }
 
-      const messages = await this.getSuccessfulMessages(threadId);
-      const summaries = await this.getSummaries(threadId);
+      const state = await this.getSummaryState(threadId);
 
-      // For migrated threads, be more lenient with summary generation
-      // Allow summary generation even if we're slightly off the expected count
-      const expectedSummaries = Math.floor(messages.length / this.MESSAGE_COUNT_TRIGGER);
-      const missingSummaries = Math.max(0, expectedSummaries - summaries.length);
+      // If we're in retry mode (previous summary generation failed), generate on every message
+      if (state.isInRetryMode) {
+        Logger.log('Summary generation check for thread (retry mode)', {
+          threadId,
+          messageCount: state.messageCount,
+          lastSummaryMessageCount: state.lastSummaryMessageCount,
+          isInRetryMode: true,
+          shouldGenerate: true
+        });
+        return true;
+      }
 
-      // Enhanced logic for migrated threads:
-      // 1. Always allow if we hit the exact trigger point
-      // 2. Allow catch-up if missing summaries (up to max retries)
-      // 3. Allow generation for threads that haven't been migrated yet (first-time summary)
-      const atTriggerPoint = messages.length > 0 && messages.length % this.MESSAGE_COUNT_TRIGGER === 0;
-      const needsCatchup = missingSummaries > 0 && missingSummaries <= this.MAX_RETRY_ATTEMPTS;
-      const firstTimeSummary = messages.length >= this.MESSAGE_COUNT_TRIGGER && summaries.length === 0;
+      // Normal mode: generate when we have MESSAGE_COUNT_TRIGGER more messages since last successful summary
+      const messagesSinceLastSummary = state.messageCount - state.lastSummaryMessageCount;
+      const shouldGenerate = messagesSinceLastSummary >= this.MESSAGE_COUNT_TRIGGER;
 
-      const shouldGenerate = atTriggerPoint || needsCatchup || firstTimeSummary;
-
-      Logger.log('Summary generation check for thread', {
+      Logger.log('Summary generation check for thread (normal mode)', {
         threadId,
-        messageCount: messages.length,
-        summaryCount: summaries.length,
-        expectedSummaries,
-        missingSummaries,
-        atTriggerPoint,
-        needsCatchup,
-        firstTimeSummary,
+        messageCount: state.messageCount,
+        lastSummaryMessageCount: state.lastSummaryMessageCount,
+        messagesSinceLastSummary,
+        isInRetryMode: false,
         shouldGenerate,
-        maxRetries: this.MAX_RETRY_ATTEMPTS
+        triggerPoint: this.MESSAGE_COUNT_TRIGGER
       });
 
       return shouldGenerate;
@@ -487,7 +608,17 @@ export class SummarySchedulerService {
       };
 
       await db.summaries.add(summaryRecord);
-      Logger.log('Summary saved', { threadId, sequence: nextSequence, summaryLength: summary.length });
+
+      // Update summary state to clear retry mode and set last successful count
+      await this.updateSummarySuccess(threadId);
+
+      const state = await this.getSummaryState(threadId);
+      Logger.log('Summary saved and retry mode cleared', {
+        threadId,
+        sequence: nextSequence,
+        summaryLength: summary.length,
+        messageCount: state.messageCount
+      });
 
       await this.trimOldSummaries(threadId);
     } catch (error) {
@@ -811,6 +942,7 @@ export class SummarySchedulerService {
 
     return 'Conversation in progress.';
   }
+
 
   /**
    * Mark a thread as having summary issues (for debugging/problematic threads)

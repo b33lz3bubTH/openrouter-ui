@@ -328,6 +328,9 @@ export const useChat = () => {
         userMessage.mediaRef
       );
 
+      // Increment message count for summary tracking (user message)
+      await SummarySchedulerService.incrementMessageCount(activeThreadId);
+
       if (response && response.trim() !== '') {
         await ChatService.saveMessage(
           activeThreadId,
@@ -340,6 +343,9 @@ export const useChat = () => {
           loadingMessage.mediaRef
         );
         console.log('📸 Saved assistant message with mediaRef:', { messageId: loadingMessage.id, mediaRef: loadingMessage.mediaRef });
+
+        // Increment message count for summary tracking
+        await SummarySchedulerService.incrementMessageCount(activeThreadId);
       }
 
       if (event.type === 'text' && response && response.trim() !== '') {
@@ -383,6 +389,10 @@ export const useChat = () => {
             threadId: activeThreadId,
             error: summaryError instanceof Error ? summaryError.message : String(summaryError)
           });
+
+          // Set retry mode so we attempt summary generation on every subsequent message
+          await SummarySchedulerService.setRetryMode(activeThreadId);
+
           // Don't rethrow - summary failure shouldn't break chat flow
           // Next message will retry automatically via shouldGenerateOrRetry
         }

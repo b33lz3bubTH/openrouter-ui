@@ -15,10 +15,16 @@
 
 ## in progress fixes (current requiremnts of in progress will generate some errors, those will come here) these are related to in progress tasks
 - [x] fixed "Cannot access 'toast' before initialization" error in ChatLayout.tsx by removing toast from useCallback dependency arrays since it's a stable reference
+- [x] fixed summarization logic to properly wait for 5 messages before generating summary, and retry on every message after failure until success (created dedicated summaryState table for global state tracking, updated database version to 9)
 
 
 ## high priority tasks
-- [ ]
+- [ ] test the summarization logic to ensure it waits for 5 messages, retries on failure, and maintains persistent state across app restarts
+  - Test normal flow: messages 1-5 (no summary), message 5 (summary generated)
+  - Test retry flow: if summary fails at message 5, should retry at messages 6, 7, 8, 9, 10... until success
+  - Test recovery: once successful (say at message 7), should wait for next 5 messages (messages 8-12), then generate at message 12
+  - Test persistence: restart app, state should be maintained
+  - Test migration: existing threads should get proper default values for new fields
 
 
 ## pending tasks
