@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatThread, Message, ThreadConfig, NewThreadPrompt, MediaUploadResult } from '@/types/chat';
 import { ChatService } from '@/services/chatService';
@@ -148,13 +148,37 @@ export const useChat = () => {
 
   useEffect(() => {
     (async () => {
-      const loadedThreads = await loadThreads();
-      setThreads(loadedThreads);
+      try {
+        // First, run migration to ensure compatibility with older versions
+        Logger.log('Initializing chat system with migration check');
+        await SummarySchedulerService.migrateExistingThreads();
+
+        // Then load threads
+        const loadedThreads = await loadThreads();
+        setThreads(loadedThreads);
+
+        Logger.log('Chat system initialized successfully');
+      } catch (error) {
+        Logger.error('Error during chat system initialization', error);
+        // Still try to load threads even if migration fails
+        try {
+          const loadedThreads = await loadThreads();
+          setThreads(loadedThreads);
+        } catch (loadError) {
+          Logger.error('Failed to load threads after migration error', loadError);
+          setThreads([]);
+        }
+      }
     })();
   }, []);
 
+  // Debounce thread saving to prevent excessive saves
   useEffect(() => {
-    saveThreads(threads);
+    const timeoutId = setTimeout(() => {
+      saveThreads(threads);
+    }, 500); // Save after 500ms of no changes
+
+    return () => clearTimeout(timeoutId);
   }, [threads]);
 
   // Process Redux events
@@ -519,14 +543,24 @@ export const useChat = () => {
     ));
   }, []);
 
-  const activeThread = threads.find(thread => thread.id === activeThreadId);
+  // Memoize active thread to prevent unnecessary re-renders
+  const activeThread = useMemo(() =>
+    threads.find(thread => thread.id === activeThreadId),
+    [threads, activeThreadId]
+  );
 
-  console.log('📝 Current state:', { 
-    threads: threads.length, 
-    activeThreadId, 
-    activeThread: activeThread?.id,
-    activeThreadMessages: activeThread?.messages?.length 
-  });
+  // Memoize thread count to prevent logging on every render
+  const threadCount = threads.length;
+
+  // Only log when important state changes
+  useEffect(() => {
+    console.log('📝 Current state changed:', {
+      threads: threadCount,
+      activeThreadId,
+      activeThread: activeThread?.id,
+      activeThreadMessages: activeThread?.messages?.length
+    });
+  }, [threadCount, activeThreadId, activeThread?.id, activeThread?.messages?.length]);
 
   return {
     threads,

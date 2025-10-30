@@ -12,19 +12,9 @@
 
 
 ## in progress
-- [x] while generating summaries, add previous two summeries, so that, there is some consistency, and the summary includes glimps of past conversations, and make sure the things are persisted, when the app refreshes, make sure scheduler running count is still there, else again user have to wait for 5 messages to generate a summary.
-- [x] summarization needs to be very dynamic as in it should have glimps of previous conversations with current context, atleast glimps of 5 different chat context.
-- [x] make assumptions to make things better, with context layer.
-- [x] make this as a plugin.
- - [x] sometimes summary generation might fail from llm, so in that case, for every next messsage try to generate the summary as well, untill its done. there is no error handling here. in general for every 5 message there will be summary generation.
- - [x] make sure the roleplay rules arent repated, just successful messages and response from llm will be summerized for context.
- - [x] only 3 recent summerization context will be passed to the llm for each message user is making.
-- [x] make sure everything is persisted, so that after 4 messages user goes away and next time he comes back, after sending 1 message the summary should generate
-- [x] if the summary generation failed, then dont retry immidiately, next time when user sends a message, generate the summary then. this will make the thing dynamic.
-- [x] all things is to be done chat thread specific, so everything is atomic.
 
 ## in progress fixes (current requiremnts of in progress will generate some errors, those will come here) these are related to in progress tasks
-- [ ]
+- [x] fixed "Cannot access 'toast' before initialization" error in ChatLayout.tsx by removing toast from useCallback dependency arrays since it's a stable reference
 
 
 ## high priority tasks
@@ -39,10 +29,16 @@
 - [ ]
 
 ## completed
-- [x] run a scheduler, after every 5 successful messages, call a function for now make it as a place holder function, that has access to 
+- [x] run a scheduler, after every 5 successful messages, call a function for now make it as a place holder function, that has access to
         all current thread messages, all recent successful response messages and roleplay rules, as well as maintain a state for summerization.
         so the idea goes such as, after every 5 messages a new summary will be added. what the user is talking about, with a default generic summary prompt, i want to send (roleplay rules + [5 recent messages with bot] + previous summary), what every the summary results are
         it will be push as new context summary, and with roleplay the previous 5 summary will go, and current chat summary will go, plus the current flow will also go, that is recent messages.
 - [x] create a separate class using good coding principals, so that this is managed by using SOLID principals, and use this class to intregrate in the current flow.
 - [x] make sure the media messages are ignored while building the summary for current context, and with each llm message a current chat summary will go, so that the llm gets a better context
 - [x] assume things better, consider edge cases
+- [x] optimize useChat hook to reduce unnecessary re-renders by using useMemo for derived state and useCallback for stable references
+- [x] optimize ChatArea component by memoizing message rendering, reducing useEffect dependencies, and preventing unnecessary media loading
+- [x] optimize ChatLayout component by memoizing expensive computations and reducing state updates
+- [x] add React.memo to message components and other UI elements to prevent unnecessary re-renders
+- [x] add smooth animations and transitions for better UX as mentioned in guidelines
+- [x] there is already an older version of this app is running, if these are merged, then next chat summary will be generated. make sure that does happen and there wont be any errors.

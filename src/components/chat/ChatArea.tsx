@@ -1,7 +1,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatThread, Message } from '@/types/chat';
 import { User, Loader2, AlertCircle, ChevronUp, UserCog2Icon, UserIcon, Bot } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import db from '@/services/chatDatabase';
 import { useDispatch, useSelector } from 'react-redux';
@@ -16,6 +16,117 @@ import {
   updateMessageDeliveredState 
 } from '@/store/chatPaginationSlice';
 import { Avatar, AvatarFallback, AvatarImage } from '@radix-ui/react-avatar';
+
+// Memoized User Message Component
+const UserMessage = memo(({
+  message,
+  mediaMap
+}: {
+  message: Message;
+  mediaMap: Map<string, { blobRef: string; mimeType: string }>
+}) => {
+  const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+  const hasMediaId = mediaIdPattern.test(message.content);
+
+  return (
+    <div className="flex justify-end message-enter">
+      <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
+        <div className={`rounded-2xl px-4 py-3 transition-all duration-200 hover:scale-[1.02] ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
+          {hasMediaId && mediaMap.has(message.id) && (
+            <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
+              {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
+                <video
+                  src={mediaMap.get(message.id)?.blobRef}
+                  controls
+                  className="w-full h-auto"
+                  preload="metadata"
+                />
+              ) : (
+                <img src={mediaMap.get(message.id)?.blobRef} alt="Media" className="w-full h-auto" />
+              )}
+            </div>
+          )}
+          {message.content && (
+            <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {message.content}
+            </p>
+          )}
+          {message.isDelivered === false && (
+            <div className="mt-2 flex items-center text-xs text-destructive">
+              <AlertCircle className="h-3 w-3 mr-1" />
+              Message not delivered
+            </div>
+          )}
+        </div>
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+          <User className="h-4 w-4 text-white" />
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Memoized Assistant Message Component
+const AssistantMessage = memo(({
+  message,
+  mediaMap,
+  botName
+}: {
+  message: Message;
+  mediaMap: Map<string, { blobRef: string; mimeType: string }>;
+  botName?: string;
+}) => {
+  const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+  const hasMediaId = mediaIdPattern.test(message.content);
+
+  return (
+    <div className="flex justify-start message-enter">
+      <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-sm transition-transform duration-200 hover:scale-110">
+          <Bot className="h-4 w-4 text-white" />
+        </div>
+        <div className={`bg-card border rounded-2xl px-4 py-3 min-w-[100px] transition-all duration-200 hover:scale-[1.02] ${message.isLoading ? 'message-loading' : ''}`}>
+          {message.isLoading ? (
+            <div className="flex items-center space-x-2 text-muted-foreground">
+              <div className="typing-dots flex space-x-1">
+                <span className="w-2 h-2 bg-muted-foreground rounded-full"></span>
+                <span className="w-2 h-2 bg-muted-foreground rounded-full"></span>
+                <span className="w-2 h-2 bg-muted-foreground rounded-full"></span>
+              </div>
+              <span className="text-sm">{botName} is typing...</span>
+            </div>
+          ) : (
+            <>
+              {hasMediaId && mediaMap.has(message.id) && (
+                <div className="mb-3 rounded-lg overflow-hidden">
+                  {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
+                    <video
+                      src={mediaMap.get(message.id)?.blobRef}
+                      controls
+                      className="w-full h-auto rounded-lg object-contain sm:max-h-48 md:max-h-96"
+                      preload="metadata"
+                    />
+                  ) : (
+                    <img
+                      src={mediaMap.get(message.id)?.blobRef}
+                      alt="Bot media"
+                      className="w-full rounded-lg object-contain sm:max-h-48 md:max-h-96"
+                    />
+                  )}
+                </div>
+              )}
+              {message.content.trim() !== '' && (
+                <p className="text-card-foreground text-sm leading-relaxed">
+                  {message.content}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 interface ChatAreaProps {
   activeThread: ChatThread | undefined;
@@ -36,12 +147,15 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     currentThreadId
   } = useSelector((state: RootState) => state.chatPagination);
 
-  // Convert Redux messages back to proper Message format for rendering
-  const displayedMessages: Message[] = reduxMessages.map(msg => ({
-    ...msg,
-    timestamp: new Date(msg.timestamp), // Convert number back to Date
-    mediaRef: msg.mediaRef // Ensure mediaRef is included
-  }));
+  // Convert Redux messages back to proper Message format for rendering - memoized to prevent recreation
+  const displayedMessages: Message[] = useMemo(() =>
+    reduxMessages.map(msg => ({
+      ...msg,
+      timestamp: new Date(msg.timestamp), // Convert number back to Date
+      mediaRef: msg.mediaRef // Ensure mediaRef is included
+    })),
+    [reduxMessages]
+  );
 
   console.log('📝 ChatArea Redux state:', { 
     activeThread: activeThread?.id, 
@@ -53,18 +167,18 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     messagesWithMedia: displayedMessages.filter(msg => msg.mediaRef).map(msg => ({ id: msg.id, mediaRef: msg.mediaRef }))
   });
 
-  // Handle load more messages
-  const handleLoadMore = () => {
+  // Handle load more messages - memoized to prevent unnecessary re-renders
+  const handleLoadMore = useCallback(() => {
     if (!activeThread?.id || isLoadingMore || !hasMoreMessages) return;
-    
+
     const oldestMessage = displayedMessages[0];
     if (!oldestMessage?.sequence) return;
-    
-    dispatch(loadMoreMessages({ 
-      threadId: activeThread.id, 
-      oldestSequence: oldestMessage.sequence 
+
+    dispatch(loadMoreMessages({
+      threadId: activeThread.id,
+      oldestSequence: oldestMessage.sequence
     }));
-  };
+  }, [activeThread?.id, isLoadingMore, hasMoreMessages, displayedMessages, dispatch]);
 
   // Load initial messages when thread changes
   useEffect(() => {
@@ -145,32 +259,34 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     }
   }, [activeThread?.id, currentThreadId, dispatch]);
 
-  // Load media for messages with Media ID patterns
+  // Memoize messages that need media loading to prevent unnecessary recalculations
+  const messagesNeedingMedia = useMemo(() => {
+    return displayedMessages.filter(msg => {
+      if (mediaMap.has(msg.id)) return false; // Already loaded
+
+      // Check if message contains Media ID pattern
+      const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
+      return mediaIdPattern.test(msg.content);
+    });
+  }, [displayedMessages, mediaMap]);
+
+  // Load media for messages with Media ID patterns - only when messagesNeedingMedia changes
   useEffect(() => {
+    if (messagesNeedingMedia.length === 0) return;
+
     const loadMedia = async () => {
-      // Extract Media IDs from message content using regex
-      const messagesNeedingMedia = displayedMessages.filter(msg => {
-        if (mediaMap.has(msg.id)) return false; // Already loaded
-        
-        // Check if message contains Media ID pattern
-        const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
-        return mediaIdPattern.test(msg.content);
-      });
-      
-      if (messagesNeedingMedia.length === 0) return;
-      
       const newMediaMap = new Map<string, { blobRef: string; mimeType: string }>();
-      
+
       for (const message of messagesNeedingMedia) {
         try {
           // Extract Media ID from message content
           const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
           const match = message.content.match(mediaIdPattern);
-          
+
           if (match && match[1]) {
             const mediaId = match[1].trim();
             console.log('📸 Extracted Media ID from message:', { messageId: message.id, mediaId, content: message.content });
-            
+
             // Get media from IndexedDB using extracted Media ID
             const media = await db.botMedia.where('mediaId').equals(mediaId).first();
             if (media) {
@@ -187,7 +303,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
           console.error('Error loading media:', error);
         }
       }
-      
+
       if (newMediaMap.size > 0) {
         setMediaMap(prev => {
           const updatedMap = new Map(prev);
@@ -198,9 +314,9 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
         });
       }
     };
-    
+
     loadMedia();
-  }, [displayedMessages]);
+  }, [messagesNeedingMedia]);
 
   // Cleanup blob URLs when component unmounts
   useEffect(() => {
@@ -241,7 +357,7 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
 
 
   return (
-    <ScrollArea ref={scrollAreaRef} className="flex-1 bg-transparent">
+    <ScrollArea ref={scrollAreaRef} className="flex-1 bg-transparent smooth-scroll">
       <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
         {/* Loading indicator for loading more messages */}
         {isLoadingMore && (
@@ -280,100 +396,17 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
             isDelivered: message.isDelivered,
             willRender: message.role === 'user' || (!message.error && (message.isLoading || message.content.trim() !== ''))
           });
-          
+
           return (
             <div key={message.id} className="space-y-4">
               {message.role === 'user' ? (
-                // User Message
-                <div className="flex justify-end">
-                  <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
-                    <div className={`rounded-2xl px-4 py-3 ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
-                      {(() => {
-                        const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
-                        const hasMediaId = mediaIdPattern.test(message.content);
-                        return hasMediaId && mediaMap.has(message.id) && (
-                          <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
-                            {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
-                              <video 
-                                src={mediaMap.get(message.id)?.blobRef} 
-                                controls 
-                                className="w-full h-auto" 
-                                preload="metadata"
-                              />
-                            ) : (
-                              <img src={mediaMap.get(message.id)?.blobRef} alt="Media" className="w-full h-auto" />
-                            )}
-                          </div>
-                        );
-                      })()}
-                      {message.content && (
-                        <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
-                          {message.content}
-                        </p>
-                      )}
-                      {message.isDelivered === false && (
-                        <div className="mt-2 flex items-center text-xs text-destructive">
-                          <AlertCircle className="h-3 w-3 mr-1" />
-                          Message not delivered
-                        </div>
-                      )}
-                    </div>
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-                      <User className="h-4 w-4 text-white" />
-                    </div>
-                  </div>
-                </div>
+                <UserMessage message={message} mediaMap={mediaMap} />
               ) : !message.error ? (
-                // Assistant Message - only show if no error
-                <div className="flex justify-start">
-                  <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-                      <Bot className="h-4 w-4 text-white" />
-                    </div>
-                    <div className="bg-card border rounded-2xl px-4 py-3 min-w-[100px]">
-                      {message.isLoading ? (
-                        <div className="flex items-center space-x-2 text-muted-foreground">
-                          <div className="flex space-x-1">
-                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                          </div>
-                          <span className="text-sm">{activeThread?.config?.botName} is typing...</span>
-                        </div>
-                      ) : (
-                        <>
-                          {(() => {
-                            const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
-                            const hasMediaId = mediaIdPattern.test(message.content);
-                            return hasMediaId && mediaMap.has(message.id) && (
-                              <div className="mb-3 rounded-lg overflow-hidden">
-                                {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
-                                  <video 
-                                    src={mediaMap.get(message.id)?.blobRef} 
-                                    controls 
-                                    className="w-full h-auto rounded-lg object-contain sm:max-h-48 md:max-h-96" 
-                                    preload="metadata"
-                                  />
-                                ) : (
-                                  <img 
-                                    src={mediaMap.get(message.id)?.blobRef} 
-                                    alt="Bot media" 
-                                    className="w-full rounded-lg object-contain sm:max-h-48 md:max-h-96" 
-                                  />
-                                )}
-                              </div>
-                            );
-                          })()}
-                          {message.content.trim() !== '' && (
-                            <p className="text-card-foreground text-sm leading-relaxed">
-                              {message.content}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <AssistantMessage
+                  message={message}
+                  mediaMap={mediaMap}
+                  botName={activeThread?.config?.botName}
+                />
               ) : null}
             </div>
           );

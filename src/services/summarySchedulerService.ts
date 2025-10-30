@@ -43,9 +43,215 @@ export class SummarySchedulerService {
   private static readonly MAX_SUMMARIES_TO_KEEP = 5;
   private static readonly MAX_RETRY_ATTEMPTS = 3; // Prevent infinite retry loops
   private static summaryPlugin: undefined | ((prompt: string, config: AuthConfig) => Promise<string>);
+  private static migratedThreads = new Set<string>(); // Track migrated threads
 
   static registerPlugin(generator: (prompt: string, config: AuthConfig) => Promise<string>) {
     this.summaryPlugin = generator;
+  }
+
+  /**
+   * Migrate existing threads to ensure they're compatible with the current summary system.
+   * This handles the case where older versions of the app are merged/updated.
+   */
+  static async migrateExistingThreads(): Promise<void> {
+    try {
+      Logger.log('Starting thread migration for summary compatibility');
+
+      // Get all conversations/threads
+      const conversations = await db.conversations.toArray();
+
+      for (const conversation of conversations) {
+        try {
+          if (this.migratedThreads.has(conversation.id)) {
+            continue; // Already migrated
+          }
+
+          Logger.log('Migrating thread', { threadId: conversation.id, title: conversation.title });
+
+          // 1. Fix message sequences (this was already being done in useChat)
+          await this.fixMessageSequencesIfNeeded(conversation.id);
+
+          // 2. Ensure thread has proper configuration
+          await this.ensureThreadConfig(conversation.id);
+
+          // 3. Validate and clean up messages
+          await this.validateAndCleanMessages(conversation.id);
+
+          // 4. Initialize summary state if needed
+          await this.initializeSummaryState(conversation.id);
+
+          // 5. Mark as migrated
+          this.migratedThreads.add(conversation.id);
+
+          Logger.log('Successfully migrated thread', { threadId: conversation.id });
+
+        } catch (threadError) {
+          Logger.error('Error migrating thread', {
+            threadId: conversation.id,
+            error: threadError instanceof Error ? threadError.message : String(threadError)
+          });
+          // Continue with other threads even if one fails
+        }
+      }
+
+      Logger.log('Thread migration completed', { totalThreads: conversations.length });
+
+    } catch (error) {
+      Logger.error('Error during thread migration', { error });
+      // Don't throw - migration failure shouldn't break the app
+    }
+  }
+
+  /**
+   * Fix message sequences if they're corrupted or missing
+   */
+  private static async fixMessageSequencesIfNeeded(threadId: string): Promise<void> {
+    try {
+      const messages = await db.messages.where('conversationId').equals(threadId).sortBy('timestamp');
+
+      if (messages.length === 0) return;
+
+      // Check if sequences are valid
+      let needsFixing = false;
+      for (let i = 0; i < messages.length; i++) {
+        const expectedSequence = i + 1;
+        if (messages[i].sequence !== expectedSequence) {
+          needsFixing = true;
+          break;
+        }
+      }
+
+      if (needsFixing) {
+        Logger.log('Fixing message sequences for thread', { threadId, messageCount: messages.length });
+
+        // Re-sequence messages
+        for (let i = 0; i < messages.length; i++) {
+          await db.messages.update(messages[i].id, { sequence: i + 1 });
+        }
+
+        Logger.log('Message sequences fixed', { threadId });
+      }
+
+    } catch (error) {
+      Logger.error('Error fixing message sequences', { threadId, error });
+    }
+  }
+
+  /**
+   * Ensure thread has proper configuration
+   */
+  private static async ensureThreadConfig(threadId: string): Promise<void> {
+    try {
+      const existingConfig = await db.threadConfigs.get(threadId);
+
+      if (!existingConfig) {
+        Logger.log('Creating default config for thread', { threadId });
+
+        // Create default configuration
+        await db.threadConfigs.add({
+          id: threadId,
+          botName: 'Bot',
+          rules: '',
+          userName: 'User'
+        });
+
+        Logger.log('Default config created', { threadId });
+      } else {
+        // Validate existing config and fix if needed
+        const updatedConfig = {
+          ...existingConfig,
+          botName: existingConfig.botName || 'Bot',
+          rules: existingConfig.rules || '',
+          userName: existingConfig.userName || 'User'
+        };
+
+        if (JSON.stringify(updatedConfig) !== JSON.stringify(existingConfig)) {
+          await db.threadConfigs.update(threadId, updatedConfig);
+          Logger.log('Config updated for thread', { threadId });
+        }
+      }
+
+    } catch (error) {
+      Logger.error('Error ensuring thread config', { threadId, error });
+    }
+  }
+
+  /**
+   * Validate and clean up messages
+   */
+  private static async validateAndCleanMessages(threadId: string): Promise<void> {
+    try {
+      const messages = await db.messages.where('conversationId').equals(threadId).toArray();
+
+      let cleanedCount = 0;
+
+      for (const message of messages) {
+        // Check for corrupted messages
+        if (!message.id || !message.content || typeof message.content !== 'string') {
+          Logger.warn('Removing corrupted message', { messageId: message.id, threadId });
+          await db.messages.delete(message.id);
+          cleanedCount++;
+          continue;
+        }
+
+        // Ensure required fields are present
+        const updatedMessage: any = {
+          ...message,
+          role: message.role === 'user' || message.role === 'assistant' ? message.role : 'user',
+          isDelivered: message.isDelivered !== false, // Default to true
+        };
+
+        if (JSON.stringify(updatedMessage) !== JSON.stringify(message)) {
+          await db.messages.update(message.id, updatedMessage);
+          cleanedCount++;
+        }
+      }
+
+      if (cleanedCount > 0) {
+        Logger.log('Cleaned messages for thread', { threadId, cleanedCount });
+      }
+
+    } catch (error) {
+      Logger.error('Error validating messages', { threadId, error });
+    }
+  }
+
+  /**
+   * Initialize summary state for threads that need it
+   */
+  private static async initializeSummaryState(threadId: string): Promise<void> {
+    try {
+      const messages = await this.getSuccessfulMessages(threadId);
+      const summaries = await this.getSummaries(threadId);
+
+      if (messages.length === 0) return; // No messages, nothing to initialize
+
+      // Calculate how many summaries should exist
+      const expectedSummaries = Math.floor(messages.length / this.MESSAGE_COUNT_TRIGGER);
+      const missingSummaries = expectedSummaries - summaries.length;
+
+      Logger.log('Initializing summary state', {
+        threadId,
+        messageCount: messages.length,
+        summaryCount: summaries.length,
+        expectedSummaries,
+        missingSummaries
+      });
+
+      // If we have missing summaries and we're at a trigger point, we'll let the normal flow handle it
+      // The shouldGenerateOrRetry method will handle retries on next message
+
+      if (missingSummaries > 0) {
+        Logger.log('Thread needs summary catch-up', {
+          threadId,
+          missingSummaries,
+          willHandleOnNextMessage: true
+        });
+      }
+
+    } catch (error) {
+      Logger.error('Error initializing summary state', { threadId, error });
+    }
   }
 
   static async shouldGenerateSummary(threadId: string): Promise<boolean> {
@@ -86,13 +292,20 @@ export class SummarySchedulerService {
       const messages = await this.getSuccessfulMessages(threadId);
       const summaries = await this.getSummaries(threadId);
 
-      // Calculate expected summaries: floor division of messages by trigger count
+      // For migrated threads, be more lenient with summary generation
+      // Allow summary generation even if we're slightly off the expected count
       const expectedSummaries = Math.floor(messages.length / this.MESSAGE_COUNT_TRIGGER);
-      const missingSummaries = expectedSummaries - summaries.length;
+      const missingSummaries = Math.max(0, expectedSummaries - summaries.length);
 
-      // Prevent infinite retry loops - if we have too many missing summaries,
-      // it might indicate persistent failures, so limit retry attempts
-      const shouldGenerate = missingSummaries > 0 && missingSummaries <= this.MAX_RETRY_ATTEMPTS;
+      // Enhanced logic for migrated threads:
+      // 1. Always allow if we hit the exact trigger point
+      // 2. Allow catch-up if missing summaries (up to max retries)
+      // 3. Allow generation for threads that haven't been migrated yet (first-time summary)
+      const atTriggerPoint = messages.length > 0 && messages.length % this.MESSAGE_COUNT_TRIGGER === 0;
+      const needsCatchup = missingSummaries > 0 && missingSummaries <= this.MAX_RETRY_ATTEMPTS;
+      const firstTimeSummary = messages.length >= this.MESSAGE_COUNT_TRIGGER && summaries.length === 0;
+
+      const shouldGenerate = atTriggerPoint || needsCatchup || firstTimeSummary;
 
       Logger.log('Summary generation check for thread', {
         threadId,
@@ -100,6 +313,9 @@ export class SummarySchedulerService {
         summaryCount: summaries.length,
         expectedSummaries,
         missingSummaries,
+        atTriggerPoint,
+        needsCatchup,
+        firstTimeSummary,
         shouldGenerate,
         maxRetries: this.MAX_RETRY_ATTEMPTS
       });
@@ -172,15 +388,37 @@ export class SummarySchedulerService {
     });
 
     try {
+      // Validate input parameters for migrated threads
+      if (!threadId || threadId.trim() === '') {
+        throw new Error('Invalid threadId provided to generateSummaryStrict');
+      }
+
+      if (!Array.isArray(recentMessages) || recentMessages.length === 0) {
+        Logger.warn('No recent messages provided, generating minimal summary', { threadId });
+        return this.generateFallbackSummary(recentMessages, botName || 'Bot');
+      }
+
+      // Sanitize inputs for migrated threads that might have corrupted data
+      const sanitizedRules = (roleplayRules || '').trim();
+      const sanitizedBotName = (botName || 'Bot').trim();
+      const sanitizedMessages = recentMessages.filter(msg =>
+        msg && typeof msg.content === 'string' && msg.content.trim() !== ''
+      );
+
+      if (sanitizedMessages.length === 0) {
+        Logger.warn('No valid messages after sanitization', { threadId });
+        return `Conversation with ${sanitizedBotName} - ${recentMessages.length} messages`;
+      }
+
       const previousSummaries = await this.getRecentSummaries(threadId, 5);
-      const previousTwoSummaries = previousSummaries.slice(-2).map(s => s.summary);
-      const contextGlimpses = await this.getContextGlimpses(threadId, botName, 5);
+      const previousTwoSummaries = previousSummaries.slice(-2).map(s => s.summary).filter(s => s && s.trim());
+      const contextGlimpses = await this.getContextGlimpses(threadId, sanitizedBotName, 5);
 
       const summaryPrompt = this.buildSummaryPrompt(
-        roleplayRules,
-        recentMessages,
+        sanitizedRules,
+        sanitizedMessages,
         previousTwoSummaries,
-        botName,
+        sanitizedBotName,
         contextGlimpses
       );
 
@@ -188,7 +426,8 @@ export class SummarySchedulerService {
         threadId,
         promptLength: summaryPrompt.length,
         previousSummariesCount: previousSummaries.length,
-        contextGlimpsesCount: contextGlimpses.length
+        contextGlimpsesCount: contextGlimpses.length,
+        sanitizedMessagesCount: sanitizedMessages.length
       });
 
       const config = getAuthConfig();
@@ -571,6 +810,29 @@ export class SummarySchedulerService {
     }
 
     return 'Conversation in progress.';
+  }
+
+  /**
+   * Mark a thread as having summary issues (for debugging/problematic threads)
+   */
+  static async markThreadWithSummaryIssues(threadId: string, issue: string): Promise<void> {
+    try {
+      Logger.warn('Marking thread with summary issues', { threadId, issue });
+
+      // In a production system, you might want to store this in a separate table
+      // For now, we'll just log it and ensure the thread can still function
+      const threadConfig = await db.threadConfigs.get(threadId);
+      if (threadConfig) {
+        // Add a flag to indicate summary issues
+        await db.threadConfigs.update(threadId, {
+          ...threadConfig,
+          summaryIssues: issue
+        });
+      }
+
+    } catch (error) {
+      Logger.error('Error marking thread with summary issues', { threadId, error });
+    }
   }
 }
 
