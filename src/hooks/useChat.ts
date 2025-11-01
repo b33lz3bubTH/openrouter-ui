@@ -7,6 +7,7 @@ import { Logger } from '@/utils/logger';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '@/store/store';
 import { markEventProcessed, setProcessingEvent, addBatchedTextEvent, setBatchTimer, clearBatchTimer } from '@/store/chatEventSlice';
+import { addOptimisticMessage, updateMessageContent } from '@/store/chatPaginationSlice';
 import { MediaService } from '@/services/mediaService';
 import { SummarySchedulerService } from '@/services/summarySchedulerService';
 import { MessageBatchingService } from '@/services/messageBatchingService';
@@ -143,9 +144,8 @@ export const useChat = () => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   
-  // Track batching per thread
-  const batchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
-  const batchedMessages = useRef<Map<string, string[]>>(new Map());
+  // Track processing state for batched messages
+  const processingBatches = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -182,7 +182,7 @@ export const useChat = () => {
     return () => clearTimeout(timeoutId);
   }, [threads]);
 
-  // Process Redux events - handle batching for text messages
+  // Process Redux events with optimistic UI and 10-second debounce batching
   useEffect(() => {
     const processEvents = async () => {
       const pendingEvents = chatEvents.pendingEvents.filter(event => 
@@ -190,56 +190,80 @@ export const useChat = () => {
       );
 
       for (const event of pendingEvents) {
-        // Handle text events with batching
+        // Handle text events with optimistic UI and batching
         if (event.type === 'text') {
           const threadId = event.threadId;
+          const currentThread = threads.find(t => t.id === threadId);
           
-          // Add to batch
-          const currentBatch = batchedMessages.current.get(threadId) || [];
-          currentBatch.push(event.content);
-          batchedMessages.current.set(threadId, currentBatch);
-
-          // Clear existing timer
-          const existingTimer = batchTimers.current.get(threadId);
-          if (existingTimer) {
-            clearTimeout(existingTimer);
+          if (!currentThread) {
+            dispatch(markEventProcessed(event.id));
+            continue;
           }
 
-          // Set new timer to flush batch after 2 seconds
-          const timer = setTimeout(() => {
-            const batch = batchedMessages.current.get(threadId);
-            if (batch && batch.length > 0) {
-              const concatenated = batch.join('\n');
+          // Create optimistic user message
+          const lastMessage = currentThread.messages[currentThread.messages.length - 1];
+          const nextSequence = lastMessage?.sequence ? lastMessage.sequence + 1 : 1;
+          
+          const optimisticMessage = {
+            id: event.id, // Use event ID as message ID for tracking
+            content: event.content,
+            role: 'user' as const,
+            timestamp: event.timestamp,
+            sequence: nextSequence,
+            isDelivered: false, // Will be updated after batch sends
+          };
+
+          // Add to Redux immediately (optimistic UI)
+          dispatch(addOptimisticMessage(optimisticMessage));
+
+          // Add to MessageBatchingService with flush callback
+          MessageBatchingService.addMessage(
+            threadId,
+            event.content,
+            event.id,
+            (messages, messageIds) => {
+              // This callback is called when batch is flushed
+              const concatenated = messages.join('\n');
               
-              Logger.log('📦 Flushing message batch', {
+              Logger.log('📦 Batch flushed - sending to backend', {
                 threadId,
-                messageCount: batch.length,
-                concatenatedLength: concatenated.length,
+                messageCount: messages.length,
+                messageIds,
               });
 
-              // Create batched event
+              // Create batched event for backend processing
               dispatch(addBatchedTextEvent({
                 content: concatenated,
                 threadId,
                 userId: event.userId,
-                messageCount: batch.length,
+                messageCount: messages.length,
               }));
 
-              // Clear batch
-              batchedMessages.current.delete(threadId);
-              batchTimers.current.delete(threadId);
-              dispatch(clearBatchTimer(threadId));
+              // Mark all batched messages as delivered
+              messageIds.forEach(msgId => {
+                dispatch(updateMessageContent({
+                  messageId: msgId,
+                  content: messages[messageIds.indexOf(msgId)],
+                  isLoading: false
+                }));
+              });
             }
-          }, 2000); // 2 second batching window
+          );
 
-          batchTimers.current.set(threadId, timer);
-          dispatch(setBatchTimer({ threadId, timestamp: Date.now() }));
-
-          // Mark original text event as processed immediately
+          // Mark event as processed immediately (already shown optimistically)
           dispatch(markEventProcessed(event.id));
         } 
-        // Handle batched text events
+        // Handle batched text events (backend processing)
         else if (event.type === 'batched_text') {
+          const batchKey = `${event.threadId}-${event.timestamp}`;
+          
+          // Prevent duplicate processing
+          if (processingBatches.current.has(batchKey)) {
+            dispatch(markEventProcessed(event.id));
+            continue;
+          }
+          
+          processingBatches.current.add(batchKey);
           dispatch(setProcessingEvent(event.id));
           
           try {
@@ -248,6 +272,8 @@ export const useChat = () => {
           } catch (error) {
             console.error('Error processing batched chat event:', error);
             dispatch(markEventProcessed(event.id));
+          } finally {
+            processingBatches.current.delete(batchKey);
           }
         }
         // Handle other events immediately
@@ -268,7 +294,7 @@ export const useChat = () => {
     if (chatEvents.pendingEvents.length > 0) {
       processEvents();
     }
-  }, [chatEvents.pendingEvents, dispatch, chatEvents.processingEventId]);
+  }, [chatEvents.pendingEvents, dispatch, chatEvents.processingEventId, threads]);
 
   // Process individual chat events
   const processChatEvent = useCallback(async (event: any) => {
@@ -583,10 +609,14 @@ export const useChat = () => {
   }, []);
 
   const selectThread = useCallback((threadId: string) => {
+    // Force flush any pending batches for the current thread before switching
+    if (activeThreadId && activeThreadId !== threadId) {
+      MessageBatchingService.forceFlush(activeThreadId);
+    }
     setActiveThreadId(threadId);
     // Note: We don't cancel active requests when switching threads
     // This allows for better UX - responses will still arrive
-  }, []);
+  }, [activeThreadId]);
 
   const deleteThread = useCallback(async (threadId: string) => {
     try {

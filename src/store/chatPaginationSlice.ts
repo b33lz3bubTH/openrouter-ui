@@ -159,6 +159,24 @@ const chatPaginationSlice = createSlice({
       if (message) {
         message.isDelivered = isDelivered;
       }
+    },
+    // Add user message optimistically
+    addOptimisticMessage: (state, action: PayloadAction<ReduxMessage>) => {
+      const message = action.payload;
+      if (state.currentThreadId === message.id.split('-')[0]) {
+        state.displayedMessages.push(message);
+      }
+    },
+    // Update message content (for streaming or batch updates)
+    updateMessageContent: (state, action: PayloadAction<{ messageId: string; content: string; isLoading?: boolean }>) => {
+      const { messageId, content, isLoading } = action.payload;
+      const message = state.displayedMessages.find(msg => msg.id === messageId);
+      if (message) {
+        message.content = content;
+        if (isLoading !== undefined) {
+          message.isLoading = isLoading;
+        }
+      }
     }
   },
   extraReducers: (builder) => {
@@ -302,5 +320,12 @@ const chatPaginationSlice = createSlice({
   },
 });
 
-export const { resetPagination, setCurrentThread, updateMessageErrorState, updateMessageDeliveredState } = chatPaginationSlice.actions;
+export const { 
+  resetPagination, 
+  setCurrentThread, 
+  updateMessageErrorState, 
+  updateMessageDeliveredState,
+  addOptimisticMessage,
+  updateMessageContent
+} = chatPaginationSlice.actions;
 export default chatPaginationSlice.reducer;
