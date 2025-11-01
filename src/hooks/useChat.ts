@@ -6,8 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { Logger } from '@/utils/logger';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '@/store/store';
-import { markEventProcessed, setProcessingEvent, addBatchedTextEvent, setBatchTimer, clearBatchTimer } from '@/store/chatEventSlice';
-import { addOptimisticMessage, updateMessageContent } from '@/store/chatPaginationSlice';
+import { markEventProcessed, setProcessingEvent, addBatchedTextEvent, addTextEvent, setBatchTimer, clearBatchTimer } from '@/store/chatEventSlice';
+import { addOptimisticMessage, updateMessageContent, updateMessageDeliveredState } from '@/store/chatPaginationSlice';
 import { MediaService } from '@/services/mediaService';
 import { SummarySchedulerService } from '@/services/summarySchedulerService';
 import { MessageBatchingService } from '@/services/messageBatchingService';
@@ -210,7 +210,8 @@ export const useChat = () => {
             role: 'user' as const,
             timestamp: event.timestamp,
             sequence: nextSequence,
-            isDelivered: false, // Will be updated after batch sends
+            isDelivered: undefined, // Pending - will be updated after LLM responds (true = success, false = failed)
+            threadId: threadId, // Add threadId for proper thread matching
           };
 
           // Add to Redux immediately (optimistic UI)
@@ -223,28 +224,34 @@ export const useChat = () => {
             event.id,
             (messages, messageIds) => {
               // This callback is called when batch is flushed
-              const concatenated = messages.join('\n');
+              // Create ONE batched_text event with all messages combined
               
-              Logger.log('📦 Batch flushed - sending to backend', {
+              Logger.log('📦 Batch flushed - creating single batched event', {
                 threadId,
                 messageCount: messages.length,
                 messageIds,
               });
 
-              // Create batched event for backend processing
+              // Combine all messages into a single string (separated by newlines)
+              // This allows the backend to process them together in one LLM call
+              const combinedContent = messages.join('\n\n');
+
+              // Create ONE batched_text event with all messages combined
               dispatch(addBatchedTextEvent({
-                content: concatenated,
+                content: combinedContent,
                 threadId,
                 userId: event.userId,
                 messageCount: messages.length,
+                messageIds: messageIds, // Pass all message IDs for batch updates
               }));
 
-              // Mark all batched messages as delivered
-              messageIds.forEach(msgId => {
+              // Update all message contents but keep isDelivered as undefined (pending)
+              // Will be updated to true when LLM succeeds, false when LLM fails
+              messageIds.forEach((messageId, index) => {
                 dispatch(updateMessageContent({
-                  messageId: msgId,
-                  content: messages[messageIds.indexOf(msgId)],
-                  isLoading: false
+                  messageId: messageId,
+                  content: messages[index],
+                  isLoading: false,
                 }));
               });
             }
@@ -308,40 +315,74 @@ export const useChat = () => {
     const lastMessage = currentThread.messages[currentThread.messages.length - 1];
     const nextSequence = lastMessage?.sequence ? lastMessage.sequence + 1 : 1;
 
-    // Create user message based on event type
-    const userMessage: Message = {
-      id: uuidv4(),
-      content: event.content,
-      role: 'user',
-      timestamp: new Date(),
-      sequence: nextSequence,
-      isDelivered: true,
-      eventType: event.type,
-      mediaRef: event.metadata?.mediaRef || event.metadata?.imageData
-    };
+    // For batched messages, handle differently - optimistic messages already exist in Redux
+    const isBatched = event.type === 'batched_text';
+    const messageIds = event.metadata?.messageIds || [];
+    const messageCount = event.metadata?.messageCount || 1;
 
-    // Create loading assistant message
-    const loadingMessage: Message = {
-      id: uuidv4(),
-      content: '',
-      role: 'assistant',
-      timestamp: new Date(),
-      sequence: nextSequence + 1,
-      isLoading: true,
-      eventType: event.type
-    };
+    let userMessage: Message;
+    let loadingMessage: Message;
 
-    console.log('📸 Created messages:', { 
-      userMessage: { id: userMessage.id, content: userMessage.content, mediaRef: userMessage.mediaRef },
-      loadingMessage: { id: loadingMessage.id, mediaRef: loadingMessage.mediaRef }
-    });
+    if (isBatched && messageIds.length > 0) {
+      // For batched messages, don't create user messages in thread state
+      // They're already in Redux. Just create a loading assistant message
+      loadingMessage = {
+        id: uuidv4(),
+        content: '',
+        role: 'assistant',
+        timestamp: new Date(),
+        sequence: nextSequence + messageCount,
+        isLoading: true,
+        eventType: event.type
+      };
 
-    // Update thread with user message and loading state
-    setThreads(prev => prev.map(thread => 
-      thread.id === targetThreadId 
-        ? { ...thread, messages: [...thread.messages, userMessage, loadingMessage], updatedAt: new Date() }
-        : thread
-    ));
+      // Update thread with loading state only
+      setThreads(prev => prev.map(thread => 
+        thread.id === targetThreadId 
+          ? { ...thread, messages: [...thread.messages, loadingMessage], updatedAt: new Date() }
+          : thread
+      ));
+
+      // Don't create userMessage for batched - already in Redux
+      userMessage = {
+        id: messageIds[0], // Use first message ID for reference
+        content: event.content,
+        role: 'user',
+        timestamp: new Date(event.timestamp || Date.now()),
+        sequence: nextSequence,
+        isDelivered: true,
+        eventType: event.type
+      };
+    } else {
+      // For single messages, create normally
+      userMessage = {
+        id: uuidv4(),
+        content: event.content,
+        role: 'user',
+        timestamp: new Date(event.timestamp || Date.now()),
+        sequence: nextSequence,
+        isDelivered: true,
+        eventType: event.type,
+        mediaRef: event.metadata?.mediaRef || event.metadata?.imageData
+      };
+
+      loadingMessage = {
+        id: uuidv4(),
+        content: '',
+        role: 'assistant',
+        timestamp: new Date(),
+        sequence: nextSequence + 1,
+        isLoading: true,
+        eventType: event.type
+      };
+
+      // Update thread with user message and loading state
+      setThreads(prev => prev.map(thread => 
+        thread.id === targetThreadId 
+          ? { ...thread, messages: [...thread.messages, userMessage, loadingMessage], updatedAt: new Date() }
+          : thread
+      ));
+    }
 
     try {
       let response = '';
@@ -373,10 +414,7 @@ export const useChat = () => {
           setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
         });
 
-        const isBatched = event.type === 'batched_text';
-        const messageCount = event.metadata?.messageCount || 1;
-
-        Logger.log(isBatched ? '📦 Processing batched message' : '📝 Processing single message', {
+        Logger.log(isBatched ? '📦 Processing batched message (single LLM call)' : '📝 Processing single message', {
           threadId: targetThreadId,
           messageCount,
           contentLength: event.content.length,
@@ -413,17 +451,52 @@ export const useChat = () => {
           : thread
       ));
 
+      // Mark user message(s) as delivered in Redux (LLM call succeeded)
+      if (isBatched && messageIds.length > 0) {
+        // Mark ALL batched messages as delivered
+        messageIds.forEach(messageId => {
+          dispatch(updateMessageDeliveredState({
+            messageId: messageId,
+            isDelivered: true,
+          }));
+        });
+      } else {
+        // Mark single message as delivered
+        dispatch(updateMessageDeliveredState({
+          messageId: userMessage.id,
+          isDelivered: true,
+        }));
+      }
+
       // Save messages to database
-      await ChatService.saveMessage(
-        targetThreadId,
-        userMessage.id,
-        userMessage.content,
-        userMessage.role,
-        userMessage.timestamp.getTime(),
-        userMessage.sequence,
-        true,
-        userMessage.mediaRef
-      );
+      if (isBatched && messageIds.length > 0) {
+        // Save all batched messages individually
+        // Parse combined content back to individual messages
+        const individualMessages = event.content.split('\n\n');
+        for (let i = 0; i < messageIds.length && i < individualMessages.length; i++) {
+          await ChatService.saveMessage(
+            targetThreadId,
+            messageIds[i],
+            individualMessages[i],
+            'user',
+            Date.now(),
+            nextSequence + i,
+            true
+          );
+        }
+      } else {
+        // Save single message
+        await ChatService.saveMessage(
+          targetThreadId,
+          userMessage.id,
+          userMessage.content,
+          userMessage.role,
+          userMessage.timestamp.getTime(),
+          userMessage.sequence,
+          true,
+          userMessage.mediaRef
+        );
+      }
 
       // Increment message count for summary tracking (user message)
       await SummarySchedulerService.incrementMessageCount(targetThreadId);
@@ -498,6 +571,23 @@ export const useChat = () => {
     } catch (error) {
       console.error('Error processing chat event:', error);
       
+      // Mark user message(s) as failed in Redux (LLM call failed)
+      if (isBatched && messageIds.length > 0) {
+        // Mark ALL batched messages as failed
+        messageIds.forEach(messageId => {
+          dispatch(updateMessageDeliveredState({
+            messageId: messageId,
+            isDelivered: false,
+          }));
+        });
+      } else {
+        // Mark single message as failed
+        dispatch(updateMessageDeliveredState({
+          messageId: userMessage.id,
+          isDelivered: false,
+        }));
+      }
+      
       // Mark user message as undelivered and show error for assistant message
       setThreads(prev => prev.map(thread => 
         thread.id === targetThreadId 
@@ -515,19 +605,36 @@ export const useChat = () => {
           : thread
       ));
 
-      // Save user message as undelivered
-      await ChatService.saveMessage(
-        targetThreadId,
-        userMessage.id,
-        userMessage.content,
-        userMessage.role,
-        userMessage.timestamp.getTime(),
-        userMessage.sequence,
-        false,
-        userMessage.mediaRef
-      );
+      // Save user message(s) as undelivered
+      if (isBatched && messageIds.length > 0) {
+        // Save all batched messages as undelivered
+        const individualMessages = event.content.split('\n\n');
+        for (let i = 0; i < messageIds.length && i < individualMessages.length; i++) {
+          await ChatService.saveMessage(
+            targetThreadId,
+            messageIds[i],
+            individualMessages[i],
+            'user',
+            Date.now(),
+            nextSequence + i,
+            false
+          );
+        }
+      } else {
+        // Save single message as undelivered
+        await ChatService.saveMessage(
+          targetThreadId,
+          userMessage.id,
+          userMessage.content,
+          userMessage.role,
+          userMessage.timestamp.getTime(),
+          userMessage.sequence,
+          false,
+          userMessage.mediaRef
+        );
+      }
     }
-  }, [authData, threads]);
+  }, [authData, threads, dispatch]);
 
   // Create new thread - this should show the prompt dialog
   const createNewThread = useCallback(() => {

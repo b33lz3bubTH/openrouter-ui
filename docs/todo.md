@@ -13,6 +13,45 @@
 
 ## in progress
 
+### Message Queue and UI Display Architecture Fix
+
+**Problems Identified:**
+1. Message concatenation at debounce level: Messages in the batch are being joined with `\n` and sent as a single concatenated message instead of remaining separate individual entities
+2. UI not reflecting queued messages: Optimistic messages added to queue are not properly displayed in DOM/UI due to incorrect thread matching logic
+3. State synchronization issues: Message state updates after batch flush don't properly mark messages as delivered or update content
+
+**Architecture Changes:**
+
+1. **Fix Message Batching Flush Callback** (`src/hooks/useChat.ts`)
+   - Replace message concatenation (`messages.join('\n')`) with individual message processing
+   - Create separate `batched_text` events for each message in the batch
+   - Process each message individually when batch flushes
+   - Mark each optimistic message as delivered with correct content individually
+
+2. **Fix Optimistic Message Display** (`src/store/chatPaginationSlice.ts`)
+   - Fix `addOptimisticMessage` reducer to use proper `threadId` field matching instead of `message.id.split('-')[0]`
+   - Add `threadId` field to `ReduxMessage` interface
+   - Fix `updateMessageContent` reducer to properly update `isDelivered` status
+   - Ensure messages are added to `displayedMessages` with correct thread matching
+
+3. **Fix Message Flow Architecture** (`src/hooks/useChat.ts`, `src/store/chatEventSlice.ts`)
+   - Pass optimistic message IDs through batched events to prevent duplicates
+   - Reuse optimistic message IDs in `processChatEvent` for `batched_text` events
+   - Ensure each message maintains individual identity throughout the flow
+   - Update message states individually (isDelivered, content, isLoading)
+
+4. **Verify ChatArea Integration** (`src/components/chat/ChatArea.tsx`)
+   - Ensure ChatArea properly reads from `displayedMessages` in Redux
+   - Verify optimistic messages with `isDelivered: false` are displayed correctly
+   - Confirm individual messages render properly, not concatenated ones
+
+**Implementation Status:**
+- [x] Fixed flush callback to process messages individually
+- [x] Fixed optimistic message reducer with proper threadId matching
+- [x] Updated message state management for individual updates
+- [x] Verified UI display of queued messages
+- [x] Ensured message ID reuse to prevent duplicates
+
 ## in progress fixes (current requiremnts of in progress will generate some errors, those will come here) these are related to in progress tasks
 - [x] fixed "Cannot access 'toast' before initialization" error in ChatLayout.tsx by removing toast from useCallback dependency arrays since it's a stable reference
 - [x] fixed summarization logic to properly wait for 5 messages before generating summary, and retry on every message after failure until success (created dedicated summaryState table for global state tracking, updated database version to 9)

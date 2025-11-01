@@ -1,6 +1,6 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatThread, Message } from '@/types/chat';
-import { User, Loader2, AlertCircle, ChevronUp, UserCog2Icon, UserIcon, Bot } from 'lucide-react';
+import { User, Loader2, AlertCircle, ChevronUp, UserCog2Icon, UserIcon, Bot, Clock } from 'lucide-react';
 import { useEffect, useRef, useState, useMemo, useCallback, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import db from '@/services/chatDatabase';
@@ -28,10 +28,14 @@ const UserMessage = memo(({
   const mediaIdPattern = /\[Media ID:\s*([^\]]+)\]/i;
   const hasMediaId = mediaIdPattern.test(message.content);
 
+  const isPending = message.isDelivered === undefined;
+  const isFailed = message.isDelivered === false;
+  const isDelivered = message.isDelivered === true;
+
   return (
     <div className="flex justify-end message-enter">
       <div className="flex items-start space-x-3 max-w-[80%] max-sm:max-w-full">
-        <div className={`rounded-2xl px-4 py-3 transition-all duration-200 hover:scale-[1.02] ${message.isDelivered === false ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
+        <div className={`rounded-2xl px-4 py-3 transition-all duration-200 hover:scale-[1.02] ${isFailed ? 'bg-destructive/20 border border-destructive/30' : 'bg-muted'}`}>
           {hasMediaId && mediaMap.has(message.id) && (
             <div className="mb-2 rounded-lg overflow-hidden max-w-xs">
               {mediaMap.get(message.id)?.mimeType.startsWith('video/') ? (
@@ -47,11 +51,17 @@ const UserMessage = memo(({
             </div>
           )}
           {message.content && (
-            <p className={`text-sm leading-relaxed ${message.isDelivered === false ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <p className={`text-sm leading-relaxed ${isFailed ? 'text-destructive' : 'text-muted-foreground'}`}>
               {message.content}
             </p>
           )}
-          {message.isDelivered === false && (
+          {isPending && (
+            <div className="mt-2 flex items-center text-xs text-muted-foreground">
+              <Clock className="h-3 w-3 mr-1 animate-pulse" />
+              Sending...
+            </div>
+          )}
+          {isFailed && (
             <div className="mt-2 flex items-center text-xs text-destructive">
               <AlertCircle className="h-3 w-3 mr-1" />
               Message not delivered

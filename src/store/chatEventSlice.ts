@@ -15,6 +15,7 @@ export interface ChatEvent {
     fileName?: string;
     fileSize?: number;
     messageCount?: number; // For batched messages
+    messageIds?: string[]; // Array of message IDs for batch processing
   };
 }
 
@@ -99,16 +100,17 @@ const chatEventSlice = createSlice({
       state.pendingEvents.push(event);
     },
 
-    addBatchedTextEvent: (state, action: PayloadAction<{ content: string; threadId: string; userId: string; messageCount: number }>) => {
+    addBatchedTextEvent: (state, action: PayloadAction<{ content: string; threadId: string; userId: string; messageCount: number; messageIds?: string[] }>) => {
       const event: ChatEvent = {
-        id: uuidv4(),
+        id: uuidv4(), // Generate new ID for the batch event
         type: 'batched_text',
-        content: action.payload.content,
+        content: action.payload.content, // Combined message content
         timestamp: Date.now(),
         threadId: action.payload.threadId,
         userId: action.payload.userId,
         metadata: {
           messageCount: action.payload.messageCount,
+          messageIds: action.payload.messageIds, // Store all message IDs for batch updates
         },
       };
       state.events.push(event);

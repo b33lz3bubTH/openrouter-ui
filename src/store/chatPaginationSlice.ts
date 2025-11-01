@@ -13,6 +13,7 @@ interface ReduxMessage {
   isDelivered?: boolean;
   error?: boolean;
   mediaRef?: string; // Add mediaRef support
+  threadId?: string; // Add threadId for proper thread matching
 }
 
 interface ChatPaginationState {
@@ -163,18 +164,26 @@ const chatPaginationSlice = createSlice({
     // Add user message optimistically
     addOptimisticMessage: (state, action: PayloadAction<ReduxMessage>) => {
       const message = action.payload;
-      if (state.currentThreadId === message.id.split('-')[0]) {
+      // Use threadId field if available, otherwise fall back to currentThreadId match
+      if (message.threadId && state.currentThreadId === message.threadId) {
+        state.displayedMessages.push(message);
+      } else if (!message.threadId && state.currentThreadId) {
+        // For backward compatibility, add threadId to message if not present
+        message.threadId = state.currentThreadId;
         state.displayedMessages.push(message);
       }
     },
     // Update message content (for streaming or batch updates)
-    updateMessageContent: (state, action: PayloadAction<{ messageId: string; content: string; isLoading?: boolean }>) => {
-      const { messageId, content, isLoading } = action.payload;
+    updateMessageContent: (state, action: PayloadAction<{ messageId: string; content: string; isLoading?: boolean; isDelivered?: boolean }>) => {
+      const { messageId, content, isLoading, isDelivered } = action.payload;
       const message = state.displayedMessages.find(msg => msg.id === messageId);
       if (message) {
         message.content = content;
         if (isLoading !== undefined) {
           message.isLoading = isLoading;
+        }
+        if (isDelivered !== undefined) {
+          message.isDelivered = isDelivered;
         }
       }
     }
