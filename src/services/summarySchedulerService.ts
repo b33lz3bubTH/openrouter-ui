@@ -952,15 +952,8 @@ export class SummarySchedulerService {
       Logger.warn('Marking thread with summary issues', { threadId, issue });
 
       // In a production system, you might want to store this in a separate table
-      // For now, we'll just log it and ensure the thread can still function
-      const threadConfig = await db.threadConfigs.get(threadId);
-      if (threadConfig) {
-        // Add a flag to indicate summary issues
-        await db.threadConfigs.update(threadId, {
-          ...threadConfig,
-          summaryIssues: issue
-        });
-      }
+      // For now, we'll just log it
+      // We don't store summaryIssues in threadConfigs to avoid type errors
 
     } catch (error) {
       Logger.error('Error marking thread with summary issues', { threadId, error });

@@ -35,7 +35,7 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
   }, [message]);
 
   const handleSubmit = () => {
-    if (!message.trim() || isLoading || !threadId || !authData) return;
+    if (!message.trim() || !threadId || !authData) return;
     
     if (pastedImage) {
       // Dispatch image request event
@@ -139,7 +139,6 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
               placeholder="Ask me anything... (Ctrl+V to paste images)"
               rows={1}
               className="min-h-[52px] max-h-48 overflow-y-auto resize-none rounded-xl pr-20 py-3 bg-background border-input focus:border-ring focus:ring-0 text-foreground placeholder-muted-foreground leading-relaxed"
-              disabled={isLoading}
             />
             
             {/* Input Actions */}
@@ -155,7 +154,6 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0"
-                disabled={isLoading}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
@@ -165,7 +163,6 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  disabled={isLoading}
                   onClick={() => {
                     dispatch(addMediaRequestEvent({
                       threadId,
@@ -185,7 +182,7 @@ export const ChatInput = ({ onSendMessage, onRequestMedia, isLoading, hasMedia =
           {/* Send Button */}
           <Button
             onClick={handleSubmit}
-            disabled={!message.trim() || isLoading}
+            disabled={!message.trim()}
             className="h-[52px] w-[52px] rounded-xl bg-foreground hover:bg-foreground/90 disabled:bg-muted text-background"
           >
             <Send className="h-5 w-5" />

@@ -140,11 +140,10 @@ export const useChat = () => {
   const chatEvents = useSelector((state: RootState) => state.chatEvents);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   
-  // Track active requests to handle concurrent responses
-  const activeRequests = useRef<Set<string>>(new Set());
+  // Track active requests per thread to handle concurrent responses
+  const activeRequests = useRef<Map<string, Set<string>>>(new Map());
 
   useEffect(() => {
     (async () => {
@@ -181,15 +180,15 @@ export const useChat = () => {
     return () => clearTimeout(timeoutId);
   }, [threads]);
 
-  // Process Redux events
+  // Process Redux events - allow concurrent processing
   useEffect(() => {
     const processEvents = async () => {
       const pendingEvents = chatEvents.pendingEvents.filter(event => 
-        event.threadId === activeThreadId && 
-        event.id !== chatEvents.processingEventId
+        !chatEvents.processingEventId || event.id !== chatEvents.processingEventId
       );
 
-      for (const event of pendingEvents) {
+      // Process ALL pending events concurrently (no thread restriction)
+      const processingPromises = pendingEvents.map(async (event) => {
         dispatch(setProcessingEvent(event.id));
         
         try {
@@ -199,19 +198,23 @@ export const useChat = () => {
           console.error('Error processing chat event:', error);
           dispatch(markEventProcessed(event.id));
         }
-      }
+      });
+
+      await Promise.all(processingPromises);
     };
 
-    if (activeThreadId && chatEvents.pendingEvents.length > 0) {
+    if (chatEvents.pendingEvents.length > 0) {
       processEvents();
     }
-  }, [chatEvents.pendingEvents, activeThreadId, dispatch, chatEvents.processingEventId]);
+  }, [chatEvents.pendingEvents, dispatch, chatEvents.processingEventId]);
 
   // Process individual chat events
   const processChatEvent = useCallback(async (event: any) => {
-    if (!authData || !activeThreadId) return;
+    if (!authData) return;
 
-    const currentThread = threads.find(t => t.id === activeThreadId);
+    // Get the target thread from the event, not from activeThreadId
+    const targetThreadId = event.threadId;
+    const currentThread = threads.find(t => t.id === targetThreadId);
     if (!currentThread || !currentThread.config) return;
 
     const lastMessage = currentThread.messages[currentThread.messages.length - 1];
@@ -247,13 +250,10 @@ export const useChat = () => {
 
     // Update thread with user message and loading state
     setThreads(prev => prev.map(thread => 
-      thread.id === activeThreadId 
+      thread.id === targetThreadId 
         ? { ...thread, messages: [...thread.messages, userMessage, loadingMessage], updatedAt: new Date() }
         : thread
     ));
-
-    // Set loading state
-    setIsLoading(true);
 
     try {
       let response = '';
@@ -264,7 +264,7 @@ export const useChat = () => {
       } else if (event.type === 'media_request') {
         // Handle media request - get next media from bot
         try {
-          const nextMedia = await MediaService.getNextMedia(activeThreadId);
+          const nextMedia = await MediaService.getNextMedia(targetThreadId);
           if (nextMedia) {
             response = `Here's the media you requested: [Media ID: ${nextMedia.mediaId}]`;
             loadingMessage.mediaRef = nextMedia.mediaId;
@@ -279,7 +279,7 @@ export const useChat = () => {
       } else if (event.type === 'text') {
         // Handle regular text message
         const roleplayRules = currentThread.config.rules;
-        const context = await ChatService.generateContext(activeThreadId, roleplayRules);
+        const context = await ChatService.generateContext(targetThreadId, roleplayRules);
         
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
@@ -294,7 +294,7 @@ export const useChat = () => {
             currentThread.config.userName,
             currentThread.config.botName,
             currentThread.config.rules,
-            activeThreadId,
+            targetThreadId,
             event.metadata?.imageData
           ),
           timeoutPromise
@@ -303,7 +303,7 @@ export const useChat = () => {
 
       // Update thread with assistant response
       setThreads(prev => prev.map(thread => 
-        thread.id === activeThreadId 
+        thread.id === targetThreadId
           ? {
               ...thread,
               messages: thread.messages.map(msg => 
@@ -318,7 +318,7 @@ export const useChat = () => {
 
       // Save messages to database
       await ChatService.saveMessage(
-        activeThreadId,
+        targetThreadId,
         userMessage.id,
         userMessage.content,
         userMessage.role,
@@ -329,11 +329,11 @@ export const useChat = () => {
       );
 
       // Increment message count for summary tracking (user message)
-      await SummarySchedulerService.incrementMessageCount(activeThreadId);
+      await SummarySchedulerService.incrementMessageCount(targetThreadId);
 
       if (response && response.trim() !== '') {
         await ChatService.saveMessage(
-          activeThreadId,
+          targetThreadId,
           loadingMessage.id,
           response,
           loadingMessage.role,
@@ -345,53 +345,53 @@ export const useChat = () => {
         console.log('📸 Saved assistant message with mediaRef:', { messageId: loadingMessage.id, mediaRef: loadingMessage.mediaRef });
 
         // Increment message count for summary tracking
-        await SummarySchedulerService.incrementMessageCount(activeThreadId);
+        await SummarySchedulerService.incrementMessageCount(targetThreadId);
       }
 
       if (event.type === 'text' && response && response.trim() !== '') {
         // Handle summary generation with proper error handling and atomicity
         try {
-          const shouldGenerate = await SummarySchedulerService.shouldGenerateOrRetry(activeThreadId);
+          const shouldGenerate = await SummarySchedulerService.shouldGenerateOrRetry(targetThreadId);
           if (shouldGenerate) {
-            const currentThread = threads.find(t => t.id === activeThreadId);
+            const currentThread = threads.find(t => t.id === targetThreadId);
             if (currentThread && currentThread.config) {
               const recentMessages = currentThread.messages
                 .filter(msg => !msg.isLoading && !isMediaMessage(msg.content))
                 .slice(-5);
 
               console.log('🔄 Attempting summary generation', {
-                threadId: activeThreadId,
+                threadId: targetThreadId,
                 recentMessagesCount: recentMessages.length
               });
 
               const summary = await SummarySchedulerService.generateSummaryStrict(
-                activeThreadId,
+                targetThreadId,
                 currentThread.config.rules,
                 currentThread.config.botName,
                 recentMessages
               );
 
               // Atomic save operation - thread-specific
-              await SummarySchedulerService.saveSummary(activeThreadId, summary);
+              await SummarySchedulerService.saveSummary(targetThreadId, summary);
               console.log('✅ Summary generated and saved for thread', {
-                threadId: activeThreadId,
+                threadId: targetThreadId,
                 summaryLength: summary.length
               });
             }
           } else {
             console.log('⏭️ Skipping summary generation', {
-              threadId: activeThreadId,
+              threadId: targetThreadId,
               reason: 'not needed'
             });
           }
         } catch (summaryError) {
           console.error('❌ Summary generation failed for thread', {
-            threadId: activeThreadId,
+            threadId: targetThreadId,
             error: summaryError instanceof Error ? summaryError.message : String(summaryError)
           });
 
           // Set retry mode so we attempt summary generation on every subsequent message
-          await SummarySchedulerService.setRetryMode(activeThreadId);
+          await SummarySchedulerService.setRetryMode(targetThreadId);
 
           // Don't rethrow - summary failure shouldn't break chat flow
           // Next message will retry automatically via shouldGenerateOrRetry
@@ -403,7 +403,7 @@ export const useChat = () => {
       
       // Mark user message as undelivered and show error for assistant message
       setThreads(prev => prev.map(thread => 
-        thread.id === activeThreadId 
+        thread.id === targetThreadId 
           ? {
               ...thread,
               messages: thread.messages.map(msg => 
@@ -420,7 +420,7 @@ export const useChat = () => {
 
       // Save user message as undelivered
       await ChatService.saveMessage(
-        activeThreadId,
+        targetThreadId,
         userMessage.id,
         userMessage.content,
         userMessage.role,
@@ -429,10 +429,8 @@ export const useChat = () => {
         false,
         userMessage.mediaRef
       );
-    } finally {
-      setIsLoading(false);
     }
-  }, [authData, activeThreadId, threads]);
+  }, [authData, threads]);
 
   // Create new thread - this should show the prompt dialog
   const createNewThread = useCallback(() => {
@@ -576,7 +574,7 @@ export const useChat = () => {
     threads,
     activeThread,
     activeThreadId,
-    isLoading,
+    isLoading: false, // No global loading state - each message handles its own loading
     showNewChatPrompt,
     createNewThread,
     handleNewThreadPrompt,
