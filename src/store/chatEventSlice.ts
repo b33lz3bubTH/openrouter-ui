@@ -3,16 +3,18 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface ChatEvent {
   id: string;
-  type: 'text' | 'image_request' | 'media_request' | 'file_upload';
+  type: 'text' | 'image_request' | 'media_request' | 'file_upload' | 'batched_text';
   content: string;
   timestamp: number; // Use number instead of Date for Redux serialization
   threadId: string;
   userId: string;
+  batchId?: string; // Group related messages in a batch
   metadata?: {
     imageData?: string;
     mediaRef?: string;
     fileName?: string;
     fileSize?: number;
+    messageCount?: number; // For batched messages
   };
 }
 
@@ -20,19 +22,21 @@ export interface ChatEventState {
   events: ChatEvent[];
   pendingEvents: ChatEvent[];
   processingEventId: string | null;
+  batchTimers: Record<string, number>; // threadId -> timestamp
 }
 
 const initialState: ChatEventState = {
   events: [],
   pendingEvents: [],
   processingEventId: null,
+  batchTimers: {},
 };
 
 const chatEventSlice = createSlice({
   name: 'chatEvents',
   initialState,
   reducers: {
-    addTextEvent: (state, action: PayloadAction<{ content: string; threadId: string; userId: string }>) => {
+    addTextEvent: (state, action: PayloadAction<{ content: string; threadId: string; userId: string; batchId?: string }>) => {
       const event: ChatEvent = {
         id: uuidv4(),
         type: 'text',
@@ -40,6 +44,7 @@ const chatEventSlice = createSlice({
         timestamp: Date.now(),
         threadId: action.payload.threadId,
         userId: action.payload.userId,
+        batchId: action.payload.batchId,
       };
       state.events.push(event);
       state.pendingEvents.push(event);
@@ -93,6 +98,30 @@ const chatEventSlice = createSlice({
       state.events.push(event);
       state.pendingEvents.push(event);
     },
+
+    addBatchedTextEvent: (state, action: PayloadAction<{ content: string; threadId: string; userId: string; messageCount: number }>) => {
+      const event: ChatEvent = {
+        id: uuidv4(),
+        type: 'batched_text',
+        content: action.payload.content,
+        timestamp: Date.now(),
+        threadId: action.payload.threadId,
+        userId: action.payload.userId,
+        metadata: {
+          messageCount: action.payload.messageCount,
+        },
+      };
+      state.events.push(event);
+      state.pendingEvents.push(event);
+    },
+    
+    setBatchTimer: (state, action: PayloadAction<{ threadId: string; timestamp: number }>) => {
+      state.batchTimers[action.payload.threadId] = action.payload.timestamp;
+    },
+
+    clearBatchTimer: (state, action: PayloadAction<string>) => {
+      delete state.batchTimers[action.payload];
+    },
     
     setProcessingEvent: (state, action: PayloadAction<string | null>) => {
       state.processingEventId = action.payload;
@@ -113,6 +142,7 @@ const chatEventSlice = createSlice({
       state.events = [];
       state.pendingEvents = [];
       state.processingEventId = null;
+      state.batchTimers = {};
     },
   },
 });
@@ -122,6 +152,9 @@ export const {
   addImageRequestEvent,
   addMediaRequestEvent,
   addFileUploadEvent,
+  addBatchedTextEvent,
+  setBatchTimer,
+  clearBatchTimer,
   setProcessingEvent,
   markEventProcessed,
   clearPendingEvents,

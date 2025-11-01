@@ -6,9 +6,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { Logger } from '@/utils/logger';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '@/store/store';
-import { markEventProcessed, setProcessingEvent } from '@/store/chatEventSlice';
+import { markEventProcessed, setProcessingEvent, addBatchedTextEvent, setBatchTimer, clearBatchTimer } from '@/store/chatEventSlice';
 import { MediaService } from '@/services/mediaService';
 import { SummarySchedulerService } from '@/services/summarySchedulerService';
+import { MessageBatchingService } from '@/services/messageBatchingService';
 
 // Helper function to check if message contains media-related content
 const isMediaMessage = (content: string): boolean => {
@@ -142,8 +143,9 @@ export const useChat = () => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   
-  // Track active requests per thread to handle concurrent responses
-  const activeRequests = useRef<Map<string, Set<string>>>(new Map());
+  // Track batching per thread
+  const batchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const batchedMessages = useRef<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     (async () => {
@@ -180,27 +182,87 @@ export const useChat = () => {
     return () => clearTimeout(timeoutId);
   }, [threads]);
 
-  // Process Redux events - allow concurrent processing
+  // Process Redux events - handle batching for text messages
   useEffect(() => {
     const processEvents = async () => {
       const pendingEvents = chatEvents.pendingEvents.filter(event => 
         !chatEvents.processingEventId || event.id !== chatEvents.processingEventId
       );
 
-      // Process ALL pending events concurrently (no thread restriction)
-      const processingPromises = pendingEvents.map(async (event) => {
-        dispatch(setProcessingEvent(event.id));
-        
-        try {
-          await processChatEvent(event);
-          dispatch(markEventProcessed(event.id));
-        } catch (error) {
-          console.error('Error processing chat event:', error);
-          dispatch(markEventProcessed(event.id));
-        }
-      });
+      for (const event of pendingEvents) {
+        // Handle text events with batching
+        if (event.type === 'text') {
+          const threadId = event.threadId;
+          
+          // Add to batch
+          const currentBatch = batchedMessages.current.get(threadId) || [];
+          currentBatch.push(event.content);
+          batchedMessages.current.set(threadId, currentBatch);
 
-      await Promise.all(processingPromises);
+          // Clear existing timer
+          const existingTimer = batchTimers.current.get(threadId);
+          if (existingTimer) {
+            clearTimeout(existingTimer);
+          }
+
+          // Set new timer to flush batch after 2 seconds
+          const timer = setTimeout(() => {
+            const batch = batchedMessages.current.get(threadId);
+            if (batch && batch.length > 0) {
+              const concatenated = batch.join('\n');
+              
+              Logger.log('📦 Flushing message batch', {
+                threadId,
+                messageCount: batch.length,
+                concatenatedLength: concatenated.length,
+              });
+
+              // Create batched event
+              dispatch(addBatchedTextEvent({
+                content: concatenated,
+                threadId,
+                userId: event.userId,
+                messageCount: batch.length,
+              }));
+
+              // Clear batch
+              batchedMessages.current.delete(threadId);
+              batchTimers.current.delete(threadId);
+              dispatch(clearBatchTimer(threadId));
+            }
+          }, 2000); // 2 second batching window
+
+          batchTimers.current.set(threadId, timer);
+          dispatch(setBatchTimer({ threadId, timestamp: Date.now() }));
+
+          // Mark original text event as processed immediately
+          dispatch(markEventProcessed(event.id));
+        } 
+        // Handle batched text events
+        else if (event.type === 'batched_text') {
+          dispatch(setProcessingEvent(event.id));
+          
+          try {
+            await processChatEvent(event);
+            dispatch(markEventProcessed(event.id));
+          } catch (error) {
+            console.error('Error processing batched chat event:', error);
+            dispatch(markEventProcessed(event.id));
+          }
+        }
+        // Handle other events immediately
+        else {
+          dispatch(setProcessingEvent(event.id));
+          
+          try {
+            await processChatEvent(event);
+            dispatch(markEventProcessed(event.id));
+          } catch (error) {
+            console.error('Error processing chat event:', error);
+            dispatch(markEventProcessed(event.id));
+          }
+        }
+      }
     };
 
     if (chatEvents.pendingEvents.length > 0) {
@@ -276,13 +338,22 @@ export const useChat = () => {
           console.error('Error getting roleplayRules and next media:', error);
           response = 'Sorry, I encountered an error while retrieving media.';
         }
-      } else if (event.type === 'text') {
-        // Handle regular text message
+      } else if (event.type === 'text' || event.type === 'batched_text') {
+        // Handle regular text message or batched messages
         const roleplayRules = currentThread.config.rules;
         const context = await ChatService.generateContext(targetThreadId, roleplayRules);
         
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
+        });
+
+        const isBatched = event.type === 'batched_text';
+        const messageCount = event.metadata?.messageCount || 1;
+
+        Logger.log(isBatched ? '📦 Processing batched message' : '📝 Processing single message', {
+          threadId: targetThreadId,
+          messageCount,
+          contentLength: event.content.length,
         });
 
         response = await Promise.race([
@@ -348,7 +419,7 @@ export const useChat = () => {
         await SummarySchedulerService.incrementMessageCount(targetThreadId);
       }
 
-      if (event.type === 'text' && response && response.trim() !== '') {
+      if (event.type === 'text' || event.type === 'batched_text') {
         // Handle summary generation with proper error handling and atomicity
         try {
           const shouldGenerate = await SummarySchedulerService.shouldGenerateOrRetry(targetThreadId);
