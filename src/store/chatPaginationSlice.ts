@@ -41,8 +41,18 @@ export const loadInitialMessages = createAsyncThunk(
     await ChatService.fixMessageSequences(threadId);
     const recentMessages = await ChatService.getRecentMessages(threadId, 20);
     
-    const filteredMessages = recentMessages
-      .filter((msg) => msg.content.trim() !== '')
+    // Remove duplicates and filter empty messages
+    const messageMap = new Map<string, typeof recentMessages[0]>();
+    for (const msg of recentMessages) {
+      if (msg.content.trim() !== '') {
+        const existing = messageMap.get(msg.id);
+        if (!existing || (msg.timestamp || 0) > (existing.timestamp || 0)) {
+          messageMap.set(msg.id, msg);
+        }
+      }
+    }
+    
+    const filteredMessages = Array.from(messageMap.values())
       .map((msg) => ({
         id: msg.id,
         role: (msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user') as 'user' | 'assistant',
@@ -51,7 +61,33 @@ export const loadInitialMessages = createAsyncThunk(
         sequence: msg.sequence,
         isDelivered: msg.isDelivered !== false,
         mediaRef: msg.mediaRef, // Include mediaRef
-      }));
+      }))
+      .sort((a, b) => {
+        const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+        const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+        
+        // First, sort by sequence
+        if (seqA !== seqB) return seqA - seqB;
+        
+        // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+        const tA = a.timestamp || 0;
+        const tB = b.timestamp || 0;
+        const timeDiff = Math.abs(tA - tB);
+        const TURN_WINDOW = 10000; // 10 seconds
+        
+        // If messages are within the same turn window and have different roles, prioritize user before assistant
+        if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+          return a.role === 'user' ? -1 : 1;
+        }
+        
+        // Otherwise, sort by timestamp
+        if (tA !== tB) return tA - tB;
+        
+        // For same timestamp, ensure user message appears before assistant
+        if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+        
+        return a.id.localeCompare(b.id);
+      });
 
     return {
       messages: filteredMessages,
@@ -70,8 +106,18 @@ export const loadMoreMessages = createAsyncThunk(
     const olderMessages = await ChatService.getOlderMessages(threadId, oldestSequence, 20);
     console.log('📝 Redux: Retrieved older messages from DB', { count: olderMessages.length });
     
-    const filteredOlderMessages = olderMessages
-      .filter((msg) => msg.content.trim() !== '')
+    // Remove duplicates and filter empty messages
+    const messageMap = new Map<string, typeof olderMessages[0]>();
+    for (const msg of olderMessages) {
+      if (msg.content.trim() !== '') {
+        const existing = messageMap.get(msg.id);
+        if (!existing || (msg.timestamp || 0) > (existing.timestamp || 0)) {
+          messageMap.set(msg.id, msg);
+        }
+      }
+    }
+    
+    const filteredOlderMessages = Array.from(messageMap.values())
       .map((msg) => ({
         id: msg.id,
         role: (msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user') as 'user' | 'assistant',
@@ -80,11 +126,37 @@ export const loadMoreMessages = createAsyncThunk(
         sequence: msg.sequence,
         isDelivered: msg.isDelivered !== false,
         mediaRef: msg.mediaRef, // Include mediaRef
-      }));
+      }))
+      .sort((a, b) => {
+        const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+        const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+        
+        // First, sort by sequence
+        if (seqA !== seqB) return seqA - seqB;
+        
+        // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+        const tA = a.timestamp || 0;
+        const tB = b.timestamp || 0;
+        const timeDiff = Math.abs(tA - tB);
+        const TURN_WINDOW = 10000; // 10 seconds
+        
+        // If messages are within the same turn window and have different roles, prioritize user before assistant
+        if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+          return a.role === 'user' ? -1 : 1;
+        }
+        
+        // Otherwise, sort by timestamp
+        if (tA !== tB) return tA - tB;
+        
+        // For same timestamp, ensure user message appears before assistant
+        if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+        
+        return a.id.localeCompare(b.id);
+      });
 
     console.log('📝 Redux: Filtered older messages', { 
       count: filteredOlderMessages.length,
-      sequences: filteredOlderMessages.map(m => m.sequence)
+      sequences: filteredOlderMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role }))
     });
 
     return {
@@ -197,6 +269,36 @@ const chatPaginationSlice = createSlice({
       .addCase(loadInitialMessages.fulfilled, (state, action) => {
         const { messages, threadId, oldestSequence } = action.payload;
         state.displayedMessages = messages;
+        
+        // Ensure stable ordering by sequence asc, then timestamp asc, then role (user before assistant)
+        // Use turn window logic to handle messages within same conversation turn
+        state.displayedMessages.sort((a, b) => {
+          const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+          const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+          
+          // First, sort by sequence
+          if (seqA !== seqB) return seqA - seqB;
+          
+          // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+          const tA = a.timestamp || 0;
+          const tB = b.timestamp || 0;
+          const timeDiff = Math.abs(tA - tB);
+          const TURN_WINDOW = 10000; // 10 seconds
+          
+          // If messages are within the same turn window and have different roles, prioritize user before assistant
+          if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+            return a.role === 'user' ? -1 : 1;
+          }
+          
+          // Otherwise, sort by timestamp
+          if (tA !== tB) return tA - tB;
+          
+          // For same timestamp, ensure user message appears before assistant
+          if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+          
+          return a.id.localeCompare(b.id);
+        });
+        
         state.currentThreadId = threadId;
         state.oldestSequence = oldestSequence;
         state.hasMoreMessages = true; // Always show button initially
@@ -221,19 +323,40 @@ const chatPaginationSlice = createSlice({
         const { messages, newOldestSequence } = action.payload;
         
         if (messages.length > 0) {
-          // Prepend older messages to the beginning
-          state.displayedMessages = [...messages, ...state.displayedMessages];
+          // Remove duplicates when merging - keep existing messages if they exist, otherwise add new ones
+          const existingIds = new Set(state.displayedMessages.map(msg => msg.id));
+          const newMessages = messages.filter(msg => !existingIds.has(msg.id));
+          
+          // Prepend new older messages to the beginning
+          state.displayedMessages = [...newMessages, ...state.displayedMessages];
           state.oldestSequence = newOldestSequence;
           
-          // Keep ordering stable after merging
+          // Keep ordering stable after merging - sort by sequence, then role, then timestamp, then id
+          // Use turn window logic to handle messages within same conversation turn
           state.displayedMessages.sort((a, b) => {
             const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
             const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+            
+            // First, sort by sequence
             if (seqA !== seqB) return seqA - seqB;
-            // Ensure user's message appears before assistant for same turn
+            
+            // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+            const tA = a.timestamp || 0;
+            const tB = b.timestamp || 0;
+            const timeDiff = Math.abs(tA - tB);
+            const TURN_WINDOW = 10000; // 10 seconds
+            
+            // If messages are within the same turn window and have different roles, prioritize user before assistant
+            if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+              return a.role === 'user' ? -1 : 1;
+            }
+            
+            // Otherwise, sort by timestamp
+            if (tA !== tB) return tA - tB;
+            
+            // For same timestamp, ensure user message appears before assistant
             if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
-            const timeDiff = (a.timestamp || 0) - (b.timestamp || 0);
-            if (timeDiff !== 0) return timeDiff;
+            
             return a.id.localeCompare(b.id);
           });
 
@@ -244,6 +367,8 @@ const chatPaginationSlice = createSlice({
           
           console.log('📝 Redux: Load more completed', {
             loadedCount: messages.length,
+            newCount: newMessages.length,
+            existingCount: state.displayedMessages.length - newMessages.length,
             newOldestSequence,
             hasReachedFirst,
             hasMoreMessages: !hasReachedFirst
@@ -313,13 +438,31 @@ const chatPaginationSlice = createSlice({
           }
           
           // Ensure stable ordering by sequence asc, then timestamp asc
+          // Use turn window logic to handle messages within same conversation turn
           state.displayedMessages.sort((a, b) => {
             const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
             const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+            
+            // First, sort by sequence
             if (seqA !== seqB) return seqA - seqB;
+            
+            // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+            const tA = a.timestamp || 0;
+            const tB = b.timestamp || 0;
+            const timeDiff = Math.abs(tA - tB);
+            const TURN_WINDOW = 10000; // 10 seconds
+            
+            // If messages are within the same turn window and have different roles, prioritize user before assistant
+            if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+              return a.role === 'user' ? -1 : 1;
+            }
+            
+            // Otherwise, sort by timestamp
+            if (tA !== tB) return tA - tB;
+            
+            // For same timestamp, ensure user message appears before assistant
             if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
-            const timeDiff = (a.timestamp || 0) - (b.timestamp || 0);
-            if (timeDiff !== 0) return timeDiff;
+            
             return a.id.localeCompare(b.id);
           });
 

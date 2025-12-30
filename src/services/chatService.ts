@@ -320,19 +320,45 @@ export class ChatService {
     // Load all messages and sort by reliable fields to reconstruct order
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
 
-    messages.sort((a, b) => {
+    // Remove duplicates by id, keeping the most recent one
+    const uniqueMessagesMap = new Map<string, typeof messages[0]>();
+    for (const msg of messages) {
+      const existing = uniqueMessagesMap.get(msg.id);
+      if (!existing || (msg.timestamp || 0) > (existing.timestamp || 0)) {
+        uniqueMessagesMap.set(msg.id, msg);
+      }
+    }
+    const uniqueMessages = Array.from(uniqueMessagesMap.values());
+
+    // Sort by timestamp, then role (user before assistant), then existing sequence, then id
+    // For messages within the same "turn" (within 10 seconds), prioritize role over timestamp
+    uniqueMessages.sort((a, b) => {
       const tA = a.timestamp || 0;
       const tB = b.timestamp || 0;
-      if (tA !== tB) return tA - tB; // oldest first
-      if (a.role !== b.role) return a.role === 'user' ? -1 : 1; // user msg before assistant in same turn
-      if (a.sequence !== undefined && b.sequence !== undefined && a.sequence !== b.sequence) {
-        return a.sequence - b.sequence; // fallback to existing sequence if timestamps equal
+      const timeDiff = Math.abs(tA - tB);
+      const TURN_WINDOW = 10000; // 10 seconds - messages within this window are considered same turn
+      
+      // If messages are within the same turn window and have different roles, prioritize user before assistant
+      if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+        return a.role === 'user' ? -1 : 1;
       }
+      
+      // Otherwise, sort by timestamp (oldest first)
+      if (tA !== tB) return tA - tB;
+      
+      // For same timestamp, ensure user message appears before assistant
+      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      
+      // Fallback to existing sequence if timestamps are equal
+      const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+      const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+      if (seqA !== seqB) return seqA - seqB;
       return String(a.id).localeCompare(String(b.id));
     });
 
+    // Assign sequential numbers starting from 1
     let sequence = 1;
-    for (const message of messages) {
+    for (const message of uniqueMessages) {
       if (message.sequence !== sequence) {
         message.sequence = sequence;
         await db.messages.put(message);
@@ -340,7 +366,20 @@ export class ChatService {
       sequence++;
     }
 
-    Logger.log('Fixed message sequences', { conversationId, count: messages.length });
+    // Delete any duplicate messages that weren't kept
+    const keptIds = new Set(uniqueMessages.map(m => m.id));
+    for (const msg of messages) {
+      if (!keptIds.has(msg.id)) {
+        await db.messages.delete(msg.id);
+      }
+    }
+
+    Logger.log('Fixed message sequences', { 
+      conversationId, 
+      originalCount: messages.length,
+      uniqueCount: uniqueMessages.length,
+      sequences: uniqueMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role, timestamp: m.timestamp }))
+    });
   }
 
   // Retrieve messages for a specific conversation
@@ -367,30 +406,47 @@ export class ChatService {
     Logger.log('Retrieving recent messages', { conversationId, limit });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
-    // Sort by sequence descending (newest first) with stable tie-breakers
-    messages.sort((a, b) => {
-      const seq = (b.sequence - a.sequence);
-      if (seq !== 0) return seq;
-      const t = (b.timestamp || 0) - (a.timestamp || 0);
-      if (t !== 0) return t;
-      if (a.role !== b.role) return a.role === 'assistant' ? -1 : 1; // invert for desc consistency
-      return String(b.id).localeCompare(String(a.id));
-    });
+    // Remove duplicates by id
+    const uniqueMessages = Array.from(new Map(messages.map(msg => [msg.id, msg])).values());
     
-    // Take the most recent messages
-    const recentMessages = messages.slice(0, limit);
-    
-    // Sort back to ascending order for display (oldest first)
-    recentMessages.sort((a, b) => {
-      const seq = (a.sequence - b.sequence);
-      if (seq !== 0) return seq;
-      const t = (a.timestamp || 0) - (b.timestamp || 0);
-      if (t !== 0) return t;
+    // Sort ALL messages by sequence ascending (oldest first) with stable tie-breakers
+    // Use the same turn window logic as fixMessageSequences for consistency
+    uniqueMessages.sort((a, b) => {
+      const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+      const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+      
+      // First, sort by sequence
+      if (seqA !== seqB) return seqA - seqB;
+      
+      // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+      const tA = a.timestamp || 0;
+      const tB = b.timestamp || 0;
+      const timeDiff = Math.abs(tA - tB);
+      const TURN_WINDOW = 10000; // 10 seconds
+      
+      // If messages are within the same turn window and have different roles, prioritize user before assistant
+      if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+        return a.role === 'user' ? -1 : 1;
+      }
+      
+      // Otherwise, sort by timestamp
+      if (tA !== tB) return tA - tB;
+      
+      // For same timestamp, ensure user message appears before assistant
       if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      
       return String(a.id).localeCompare(String(b.id));
     });
     
-    Logger.log('Retrieved recent messages', { recentMessages });
+    // Take the last N messages (most recent)
+    const recentMessages = uniqueMessages.slice(-limit);
+    
+    Logger.log('Retrieved recent messages', { 
+      totalMessages: messages.length,
+      uniqueMessages: uniqueMessages.length,
+      recentMessages: recentMessages.length,
+      sequences: recentMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role, timestamp: m.timestamp }))
+    });
     return recentMessages;
   }
 
@@ -399,30 +455,51 @@ export class ChatService {
     Logger.log('Retrieving older messages', { conversationId, beforeSequence, limit });
     const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
-    // Sort by sequence descending (newest first) with stable tie-breakers
-    messages.sort((a, b) => {
-      const seq = (b.sequence - a.sequence);
-      if (seq !== 0) return seq;
-      const t = (b.timestamp || 0) - (a.timestamp || 0);
-      if (t !== 0) return t;
-      if (a.role !== b.role) return a.role === 'assistant' ? -1 : 1;
-      return String(b.id).localeCompare(String(a.id));
-    });
+    // Remove duplicates by id
+    const uniqueMessages = Array.from(new Map(messages.map(msg => [msg.id, msg])).values());
     
-    // Find messages older than beforeSequence
-    const olderMessages = messages.filter(msg => msg.sequence < beforeSequence).slice(0, limit);
-    
-    // Sort back to ascending order for display (oldest first)
-    olderMessages.sort((a, b) => {
-      const seq = (a.sequence - b.sequence);
-      if (seq !== 0) return seq;
-      const t = (a.timestamp || 0) - (b.timestamp || 0);
-      if (t !== 0) return t;
+    // Sort ALL messages by sequence ascending (oldest first) with stable tie-breakers
+    // Use the same turn window logic as fixMessageSequences for consistency
+    uniqueMessages.sort((a, b) => {
+      const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+      const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+      
+      // First, sort by sequence
+      if (seqA !== seqB) return seqA - seqB;
+      
+      // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+      const tA = a.timestamp || 0;
+      const tB = b.timestamp || 0;
+      const timeDiff = Math.abs(tA - tB);
+      const TURN_WINDOW = 10000; // 10 seconds
+      
+      // If messages are within the same turn window and have different roles, prioritize user before assistant
+      if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+        return a.role === 'user' ? -1 : 1;
+      }
+      
+      // Otherwise, sort by timestamp
+      if (tA !== tB) return tA - tB;
+      
+      // For same timestamp, ensure user message appears before assistant
       if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
+      
       return String(a.id).localeCompare(String(b.id));
     });
     
-    Logger.log('Retrieved older messages', { olderMessages });
+    // Find messages older than beforeSequence
+    const olderMessages = uniqueMessages.filter(msg => {
+      const seq = msg.sequence ?? Number.MAX_SAFE_INTEGER;
+      return seq < beforeSequence;
+    }).slice(-limit);
+    
+    Logger.log('Retrieved older messages', { 
+      totalMessages: messages.length,
+      uniqueMessages: uniqueMessages.length,
+      olderMessages: olderMessages.length,
+      beforeSequence,
+      sequences: olderMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role, timestamp: m.timestamp }))
+    });
     return olderMessages;
   }
 
