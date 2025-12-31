@@ -177,7 +177,7 @@ export class ChatService {
         headers: {
           'Authorization': `Bearer ${config.apiKey}`,
           'HTTP-Referer': window.location.origin,
-          'X-Title': 'Perplexity Pro',
+          'X-Title': 'Roleplay Pro',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

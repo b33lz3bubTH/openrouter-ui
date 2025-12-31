@@ -253,7 +253,7 @@ export const ChatLayout = memo(() => {
       {/* Rules Dialog */}
       {activeThread?.config?.rules && (
         <Dialog open={showRulesDialog} onOpenChange={setShowRulesDialog}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl" style={{maxHeight: '80vh'}}>
             <DialogHeader>
               <DialogTitle className="flex items-center justify-between">
                 Roleplay Rules
@@ -269,7 +269,7 @@ export const ChatLayout = memo(() => {
                 </div>
               </DialogTitle>
             </DialogHeader>
-            <div className="mt-4">
+            <div className="mt-4 overflow-y-auto max-h-[70vh]">
               {isEditingRules ? (
                 <div className="space-y-4">
                   <Textarea

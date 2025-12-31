@@ -56,7 +56,7 @@ export const LoginScreen = ({ onLogin }: LoginScreenProps) => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-center">Welcome to Perplexity Pro</CardTitle>
+          <CardTitle className="text-center">Welcome to Sourav's Chat Pro</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs value={backend} onValueChange={(v) => setBackend(v as 'custom' | 'openrouter')}>
