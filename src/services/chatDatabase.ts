@@ -1,9 +1,21 @@
 import Dexie from 'dexie';
 
+// Define message interface for proper typing
+export interface MessageRecord {
+  id: string;
+  conversationId: string;
+  content: string;
+  role: 'user' | 'assistant';
+  timestamp: number;
+  sequence: number; // Always required - ensures proper ordering
+  isDelivered?: boolean;
+  mediaRef?: string;
+}
+
 // Define the database schema
 class ChatDatabase extends Dexie {
   conversations: Dexie.Table<{ id: string; title: string; createdAt: number; updatedAt: number }, string>;
-  messages: Dexie.Table<{ id: string; conversationId: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }, string>;
+  messages: Dexie.Table<MessageRecord, string>;
   threadConfigs: Dexie.Table<{ id: string; botName: string; rules: string; userName: string; profilePicture?: string; lastSuccessfulSummaryMessageCount?: number; summaryRetryMode?: boolean }, string>;
   botMedia: Dexie.Table<{ id: string; botId: string; mediaId: string; type: 'image' | 'video'; mimeType: string; blobData: ArrayBuffer; blobRef: string; optimizedDimensions?: { width: number; height: number }; createdAt: number; lastUsedAt: number; rotationIndex: number }, string>;
   mediaReferences: Dexie.Table<{ id: string; messageId: string; mediaId: string; botId: string; createdAt: number }, string>;
@@ -12,14 +24,16 @@ class ChatDatabase extends Dexie {
 
   constructor() {
     super('ChatDatabase');
-    this.version(9).stores({
-      conversations: 'id, createdAt, updatedAt', // Index by id, createdAt, and updatedAt
-      messages: 'id, conversationId, timestamp, sequence', // Index by id, conversationId, timestamp, and sequence
-      threadConfigs: 'id', // Index by id
-      botMedia: 'id, botId, mediaId, createdAt, lastUsedAt, rotationIndex', // Index by id, botId, mediaId, createdAt, lastUsedAt, rotationIndex
-      mediaReferences: 'id, messageId, mediaId, botId, createdAt', // Index by id, messageId, mediaId, botId, createdAt
-      summaries: 'id, threadId, createdAt, sequence', // Index by id, threadId, createdAt, and sequence
-      summaryState: 'id, threadId, lastUpdated', // Index by id, threadId, and lastUpdated
+    // Version 10: Proper sequence indexing for message ordering
+    this.version(10).stores({
+      conversations: 'id, createdAt, updatedAt',
+      // Index by conversationId + sequence for efficient ordered queries
+      messages: 'id, conversationId, [conversationId+sequence], timestamp, sequence',
+      threadConfigs: 'id',
+      botMedia: 'id, botId, mediaId, createdAt, lastUsedAt, rotationIndex',
+      mediaReferences: 'id, messageId, mediaId, botId, createdAt',
+      summaries: 'id, threadId, createdAt, sequence',
+      summaryState: 'id, threadId, lastUpdated',
     });
     this.conversations = this.table('conversations');
     this.messages = this.table('messages');

@@ -2,6 +2,7 @@ import { BackendChatRequest, BackendChatResponse, BackendContextMessage, Message
 import db from './chatDatabase';
 import { Logger } from '@/utils/logger';
 import { SummarySchedulerService } from './summarySchedulerService';
+import Dexie from 'dexie';
 
 const API_BASE_URL = 'https://3b1b6575caab.ngrok-free.app';
 
@@ -303,56 +304,73 @@ export class ChatService {
 
   // Save a message to the Dexie database with a specific sequence number
   static async saveMessage(conversationId: string, id: string, content: string, role: string, timestamp: number, sequence?: number, isDelivered?: boolean, mediaRef?: string): Promise<void> {
-    // If sequence is provided, use it; otherwise calculate it
+    // If sequence is provided, use it; otherwise calculate it based on the highest sequence
     let finalSequence = sequence;
-    if (finalSequence === undefined) {
-      const lastMessage = await db.messages.where('conversationId').equals(conversationId).last();
-      finalSequence = lastMessage ? lastMessage.sequence + 1 : 1; // Increment sequence or start at 1
+    if (finalSequence === undefined || finalSequence <= 0) {
+      // Get the highest sequence number for this conversation
+      const messages = await db.messages
+        .where('conversationId')
+        .equals(conversationId)
+        .sortBy('sequence');
+      
+      if (messages.length > 0) {
+        const maxSequence = Math.max(...messages.map(m => m.sequence || 0));
+        finalSequence = maxSequence + 1;
+      } else {
+        finalSequence = 1; // First message
+      }
     }
 
-    Logger.log('Saving message with sequence', { conversationId, id, content, role, timestamp, sequence: finalSequence, isDelivered, mediaRef });
-    await db.messages.put({ id, conversationId, content, role, timestamp, sequence: finalSequence, isDelivered, mediaRef });
+    // Ensure role is valid
+    const validRole = (role === 'user' || role === 'assistant') ? role : 'user';
+
+    Logger.log('Saving message with sequence', { conversationId, id, content, role: validRole, timestamp, sequence: finalSequence, isDelivered, mediaRef });
+    await db.messages.put({ 
+      id, 
+      conversationId, 
+      content, 
+      role: validRole, 
+      timestamp, 
+      sequence: finalSequence, 
+      isDelivered, 
+      mediaRef 
+    });
   }
 
-  // Fix sequences for all messages in a conversation
+  // Fix sequences for all messages in a conversation - ensures proper ordering
   static async fixMessageSequences(conversationId: string): Promise<void> {
     Logger.log('Fixing message sequences for conversation', { conversationId });
-    // Load all messages and sort by reliable fields to reconstruct order
-    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
+    
+    // Load all messages using compound index
+    const messages = await db.messages
+      .where('[conversationId+sequence]')
+      .between([conversationId, Dexie.minKey], [conversationId, Dexie.maxKey])
+      .toArray();
 
-    // Remove duplicates by id, keeping the most recent one
+    // Remove duplicates by id, keeping the one with highest sequence
     const uniqueMessagesMap = new Map<string, typeof messages[0]>();
     for (const msg of messages) {
       const existing = uniqueMessagesMap.get(msg.id);
-      if (!existing || (msg.timestamp || 0) > (existing.timestamp || 0)) {
+      if (!existing || (msg.sequence || 0) > (existing.sequence || 0)) {
         uniqueMessagesMap.set(msg.id, msg);
       }
     }
     const uniqueMessages = Array.from(uniqueMessagesMap.values());
 
-    // Sort by timestamp, then role (user before assistant), then existing sequence, then id
-    // For messages within the same "turn" (within 10 seconds), prioritize role over timestamp
+    // Sort by timestamp (oldest first), then role (user before assistant), then id
     uniqueMessages.sort((a, b) => {
       const tA = a.timestamp || 0;
       const tB = b.timestamp || 0;
-      const timeDiff = Math.abs(tA - tB);
-      const TURN_WINDOW = 10000; // 10 seconds - messages within this window are considered same turn
       
-      // If messages are within the same turn window and have different roles, prioritize user before assistant
-      if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+      // Primary sort: timestamp (ascending)
+      if (tA !== tB) return tA - tB;
+      
+      // Secondary sort: user before assistant (for same timestamp)
+      if (a.role !== b.role) {
         return a.role === 'user' ? -1 : 1;
       }
       
-      // Otherwise, sort by timestamp (oldest first)
-      if (tA !== tB) return tA - tB;
-      
-      // For same timestamp, ensure user message appears before assistant
-      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
-      
-      // Fallback to existing sequence if timestamps are equal
-      const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
-      const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
-      if (seqA !== seqB) return seqA - seqB;
+      // Tertiary sort: id for stability
       return String(a.id).localeCompare(String(b.id));
     });
 
@@ -382,123 +400,158 @@ export class ChatService {
     });
   }
 
-  // Retrieve messages for a specific conversation
+  // Retrieve messages for a specific conversation - properly ordered by sequence
   static async getMessagesByConversation(conversationId: string): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
     Logger.log('Retrieving messages for conversation', { conversationId });
-    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
-
-    // Sort messages by sequence asc with stable tie-breakers
-    messages.sort((a, b) => {
-      const seq = (a.sequence - b.sequence);
-      if (seq !== 0) return seq;
-      const t = (a.timestamp || 0) - (b.timestamp || 0);
-      if (t !== 0) return t;
-      if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
-      return String(a.id).localeCompare(String(b.id));
-    });
-    Logger.log('Sorted messages by sequence', { messages });
-
-    return messages;
-  }
-
-  // Get recent messages (reverse pagination - newest first)
-  static async getRecentMessages(conversationId: string, limit: number = 11): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
-    Logger.log('Retrieving recent messages', { conversationId, limit });
-    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
-    // Remove duplicates by id
-    const uniqueMessages = Array.from(new Map(messages.map(msg => [msg.id, msg])).values());
+    // Use compound index for efficient query: conversationId + sequence
+    const messages = await db.messages
+      .where('[conversationId+sequence]')
+      .between([conversationId, Dexie.minKey], [conversationId, Dexie.maxKey])
+      .sortBy('sequence');
+
+    // Remove duplicates by id (keep the one with highest sequence)
+    const messageMap = new Map<string, typeof messages[0]>();
+    for (const msg of messages) {
+      const existing = messageMap.get(msg.id);
+      if (!existing || (msg.sequence || 0) > (existing.sequence || 0)) {
+        messageMap.set(msg.id, msg);
+      }
+    }
     
-    // Sort ALL messages by sequence ascending (oldest first) with stable tie-breakers
-    // Use the same turn window logic as fixMessageSequences for consistency
+    const uniqueMessages = Array.from(messageMap.values());
+    
+    // Sort by sequence (ascending) - this ensures proper chronological order
+    // User messages should appear before assistant messages in the same turn
     uniqueMessages.sort((a, b) => {
-      const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
-      const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+      const seqA = a.sequence || 0;
+      const seqB = b.sequence || 0;
       
-      // First, sort by sequence
+      // Primary sort: sequence
       if (seqA !== seqB) return seqA - seqB;
       
-      // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+      // Secondary sort: timestamp
       const tA = a.timestamp || 0;
       const tB = b.timestamp || 0;
-      const timeDiff = Math.abs(tA - tB);
-      const TURN_WINDOW = 10000; // 10 seconds
+      if (tA !== tB) return tA - tB;
       
-      // If messages are within the same turn window and have different roles, prioritize user before assistant
-      if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
+      // Tertiary sort: user before assistant (for same timestamp)
+      if (a.role !== b.role) {
         return a.role === 'user' ? -1 : 1;
       }
       
-      // Otherwise, sort by timestamp
+      // Final sort: id for stability
+      return String(a.id).localeCompare(String(b.id));
+    });
+    
+    Logger.log('Retrieved and sorted messages by sequence', { 
+      conversationId,
+      count: uniqueMessages.length,
+      sequences: uniqueMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role }))
+    });
+
+    return uniqueMessages;
+  }
+
+  // Get recent messages - properly ordered by sequence (newest last)
+  static async getRecentMessages(conversationId: string, limit: number = 11): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
+    Logger.log('Retrieving recent messages', { conversationId, limit });
+    
+    // Use compound index for efficient query
+    const messages = await db.messages
+      .where('[conversationId+sequence]')
+      .between([conversationId, Dexie.minKey], [conversationId, Dexie.maxKey])
+      .sortBy('sequence');
+    
+    // Remove duplicates by id (keep the one with highest sequence)
+    const messageMap = new Map<string, typeof messages[0]>();
+    for (const msg of messages) {
+      const existing = messageMap.get(msg.id);
+      if (!existing || (msg.sequence || 0) > (existing.sequence || 0)) {
+        messageMap.set(msg.id, msg);
+      }
+    }
+    
+    const uniqueMessages = Array.from(messageMap.values());
+    
+    // Sort by sequence ascending (oldest first)
+    uniqueMessages.sort((a, b) => {
+      const seqA = a.sequence || 0;
+      const seqB = b.sequence || 0;
+      
+      if (seqA !== seqB) return seqA - seqB;
+      
+      // For same sequence, sort by timestamp
+      const tA = a.timestamp || 0;
+      const tB = b.timestamp || 0;
       if (tA !== tB) return tA - tB;
       
-      // For same timestamp, ensure user message appears before assistant
+      // For same timestamp, user before assistant
       if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
       
       return String(a.id).localeCompare(String(b.id));
     });
     
-    // Take the last N messages (most recent)
+    // Take the last N messages (most recent by sequence)
     const recentMessages = uniqueMessages.slice(-limit);
     
     Logger.log('Retrieved recent messages', { 
       totalMessages: messages.length,
       uniqueMessages: uniqueMessages.length,
       recentMessages: recentMessages.length,
-      sequences: recentMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role, timestamp: m.timestamp }))
+      sequences: recentMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role }))
     });
     return recentMessages;
   }
 
-  // Get older messages (for pagination when scrolling up)
+  // Get older messages (for pagination when scrolling up) - properly ordered by sequence
   static async getOlderMessages(conversationId: string, beforeSequence: number, limit: number = 10): Promise<{ id: string; content: string; role: string; timestamp: number; sequence: number; isDelivered?: boolean; mediaRef?: string }[]> {
     Logger.log('Retrieving older messages', { conversationId, beforeSequence, limit });
-    const messages = await db.messages.where('conversationId').equals(conversationId).toArray();
     
-    // Remove duplicates by id
-    const uniqueMessages = Array.from(new Map(messages.map(msg => [msg.id, msg])).values());
+    // Use compound index for efficient query
+    const messages = await db.messages
+      .where('[conversationId+sequence]')
+      .between([conversationId, Dexie.minKey], [conversationId, beforeSequence])
+      .sortBy('sequence');
     
-    // Sort ALL messages by sequence ascending (oldest first) with stable tie-breakers
-    // Use the same turn window logic as fixMessageSequences for consistency
+    // Remove duplicates by id (keep the one with highest sequence)
+    const messageMap = new Map<string, typeof messages[0]>();
+    for (const msg of messages) {
+      const existing = messageMap.get(msg.id);
+      if (!existing || (msg.sequence || 0) > (existing.sequence || 0)) {
+        messageMap.set(msg.id, msg);
+      }
+    }
+    
+    const uniqueMessages = Array.from(messageMap.values());
+    
+    // Sort by sequence ascending (oldest first)
     uniqueMessages.sort((a, b) => {
-      const seqA = a.sequence ?? Number.MAX_SAFE_INTEGER;
-      const seqB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+      const seqA = a.sequence || 0;
+      const seqB = b.sequence || 0;
       
-      // First, sort by sequence
       if (seqA !== seqB) return seqA - seqB;
       
-      // For messages with same sequence, check if they're in the same turn (within 10 seconds)
+      // For same sequence, sort by timestamp
       const tA = a.timestamp || 0;
       const tB = b.timestamp || 0;
-      const timeDiff = Math.abs(tA - tB);
-      const TURN_WINDOW = 10000; // 10 seconds
-      
-      // If messages are within the same turn window and have different roles, prioritize user before assistant
-      if (timeDiff <= TURN_WINDOW && a.role !== b.role) {
-        return a.role === 'user' ? -1 : 1;
-      }
-      
-      // Otherwise, sort by timestamp
       if (tA !== tB) return tA - tB;
       
-      // For same timestamp, ensure user message appears before assistant
+      // For same timestamp, user before assistant
       if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
       
       return String(a.id).localeCompare(String(b.id));
     });
     
-    // Find messages older than beforeSequence
-    const olderMessages = uniqueMessages.filter(msg => {
-      const seq = msg.sequence ?? Number.MAX_SAFE_INTEGER;
-      return seq < beforeSequence;
-    }).slice(-limit);
+    // Take the last N messages (most recent of the older ones)
+    const olderMessages = uniqueMessages.slice(-limit);
     
     Logger.log('Retrieved older messages', { 
       totalMessages: messages.length,
       uniqueMessages: uniqueMessages.length,
       olderMessages: olderMessages.length,
       beforeSequence,
-      sequences: olderMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role, timestamp: m.timestamp }))
+      sequences: olderMessages.map(m => ({ id: m.id, sequence: m.sequence, role: m.role }))
     });
     return olderMessages;
   }

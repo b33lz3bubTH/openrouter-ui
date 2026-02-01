@@ -157,22 +157,35 @@ export const ChatArea = ({ activeThread, isLoading }: ChatAreaProps) => {
     currentThreadId
   } = useSelector((state: RootState) => state.chatPagination);
 
-  // Convert Redux messages back to proper Message format for rendering - memoized to prevent recreation
+  // Convert Redux messages back to proper Message format for rendering - properly ordered by sequence
   const displayedMessages: Message[] = useMemo(() => {
     const mapped = reduxMessages.map(msg => ({
       ...msg,
       timestamp: new Date(msg.timestamp),
       mediaRef: msg.mediaRef
     })) as unknown as Message[];
+    
+    // Sort by sequence (ascending) - this ensures proper chronological order
+    // User messages should appear before assistant messages when they have the same sequence
     mapped.sort((a, b) => {
       const seqA = (a as any).sequence ?? Number.MAX_SAFE_INTEGER;
       const seqB = (b as any).sequence ?? Number.MAX_SAFE_INTEGER;
+      
+      // Primary sort: sequence (ascending)
       if (seqA !== seqB) return seqA - seqB;
+      
+      // Secondary sort: timestamp (ascending)
+      const timeA = (a.timestamp as Date).getTime();
+      const timeB = (b.timestamp as Date).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      
+      // Tertiary sort: user before assistant (for same timestamp/sequence)
       if (a.role !== b.role) return a.role === 'user' ? -1 : 1;
-      const timeDiff = (a.timestamp as Date).getTime() - (b.timestamp as Date).getTime();
-      if (timeDiff !== 0) return timeDiff;
+      
+      // Final sort: id for stability
       return a.id.localeCompare(b.id);
     });
+    
     return mapped;
   }, [reduxMessages]);
 
